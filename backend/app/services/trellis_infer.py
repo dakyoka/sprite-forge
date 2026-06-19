@@ -15,6 +15,7 @@ def _setup_trellis_path():
         sys.path.append(p)
     os.environ.setdefault("ATTN_BACKEND", "xformers")
     os.environ.setdefault("SPARSE_BACKEND", "spconv")
+    os.environ.setdefault("SPCONV_ALGO", "native")
 
 
 _setup_trellis_path()
@@ -26,6 +27,8 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--model",  default="microsoft/TRELLIS-image-large")
     parser.add_argument("--steps",  type=int, default=12)
+    parser.add_argument("--cfg-strength-sparse", type=float, default=7.5)
+    parser.add_argument("--cfg-strength-slat",   type=float, default=3.0)
     parser.add_argument("--fp16",   action="store_true")
     args = parser.parse_args()
 
@@ -34,6 +37,8 @@ def main():
         from trellis.pipelines import TrellisImageTo3DPipeline
         from trellis.utils import postprocessing_utils
     except ImportError as exc:
+        import traceback
+        traceback.print_exc()
         print(f"ERROR: TRELLIS import failed: {exc}", file=sys.stderr)
         print("SETUP.md を参照して H:/TRELLIS をセットアップしてください。", file=sys.stderr)
         sys.exit(1)
@@ -42,15 +47,29 @@ def main():
     if device == "cpu":
         print("WARNING: CUDA not available, running on CPU (very slow)", file=sys.stderr)
 
+    print(f"[TRELLIS] Loading model: {args.model} (device={device})", file=sys.stderr)
     pipeline = TrellisImageTo3DPipeline.from_pretrained(args.model)
-    pipeline = pipeline.to(device)
+    pipeline.to(device)
 
     from PIL import Image
     image = Image.open(args.input).convert("RGBA")
 
-    outputs = pipeline.run(image, num_steps=args.steps)
+    print(f"[TRELLIS] Running inference (steps={args.steps})...", file=sys.stderr)
+    outputs = pipeline.run(
+        image,
+        seed=42,
+        sparse_structure_sampler_params={
+            "steps": args.steps,
+            "cfg_strength": args.cfg_strength_sparse,
+        },
+        slat_sampler_params={
+            "steps": args.steps,
+            "cfg_strength": args.cfg_strength_slat,
+        },
+    )
 
     glb_path = Path(args.output)
+    print(f"[TRELLIS] Exporting GLB: {glb_path}", file=sys.stderr)
     mesh = postprocessing_utils.to_glb(
         outputs["gaussian"][0],
         outputs["mesh"][0],

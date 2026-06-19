@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.models.job import Job, JobStatus, StepStatus
-from app.services import upscale, rembg_service, trellis, blender_post, godot_export
+from app.services import upscale, rembg_service, trellis_service as trellis, blender_post, godot_export
 
 logger = logging.getLogger(__name__)
 
