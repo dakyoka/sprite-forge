@@ -1,0 +1,6 @@
+# ML packages - install separately: pip install -r requirements-ml.txt
+# Requires GPU + time
+torch>=2.3.0
+torchvision>=0.18.0
+rembg>=2.0.56
+realesrgan>=0.3.0
