@@ -205,6 +205,9 @@ def main():
     parser.add_argument("--cfg-strength-slat",   type=float, default=3.0)
     parser.add_argument("--nviews", type=int, default=40)
     parser.add_argument("--render-resolution", type=int, default=512)
+    # opt-in: 高ボクセル入力を 8GB に収めるための疎構造ボクセル数上限。
+    # 未指定(None)ならライブラリ既定(occupancy>0)のままで通常入力は無影響。
+    parser.add_argument("--max-voxels", type=int, default=None)
     parser.add_argument("--fp16",    dest="fp16", action="store_true",  default=None)
     parser.add_argument("--no-fp16", dest="fp16", action="store_false")
     args = parser.parse_args()
@@ -293,7 +296,37 @@ def main():
             if offload:
                 _move(["sparse_structure_flow_model", "sparse_structure_decoder"], "cuda")
             print("[TRELLIS] sample_sparse_structure...", file=sys.stderr, flush=True)
-            c = pipeline.sample_sparse_structure(cond, 1, ss_params)
+            if args.max_voxels:
+                # --- opt-in: 高ボクセル入力を 8GB に収めるためのボクセル数上限 ---
+                # SLAT サンプリング/デコードのピーク VRAM はおおむねボクセル数に比例する。
+                # 占有(occupancy)の信頼度が高い上位 max_voxels 個だけを残すことで、
+                # 形状のシルエットを保ちつつ密度を間引き、spconv のスピルを防ぐ。
+                # sample_sparse_structure の内部を展開して占有値にしきい値を適用する。
+                # 既定(args.max_voxels=None)ではこの分岐に入らず通常入力は無影響。
+                fm = pipeline.models["sparse_structure_flow_model"]
+                reso = fm.resolution
+                noise = torch.randn(1, fm.in_channels, reso, reso, reso, device="cuda")
+                spp = {**pipeline.sparse_structure_sampler_params, **ss_params}
+                z_s = pipeline.sparse_structure_sampler.sample(
+                    fm, noise, **cond, **spp, verbose=True
+                ).samples
+                occ = pipeline.models["sparse_structure_decoder"](z_s)
+                flat = occ.reshape(-1)
+                pos = flat[flat > 0]
+                n0 = int(pos.numel())
+                if n0 > args.max_voxels:
+                    # 上位 max_voxels 個を残すしきい値(K 番目に大きい占有値)。
+                    thresh = float(torch.topk(pos.float(), args.max_voxels, largest=True).values.min())
+                else:
+                    thresh = 0.0
+                c = torch.argwhere(occ > thresh)[:, [0, 2, 3, 4]].int()
+                print(
+                    f"[TRELLIS] ss voxels: occ>0={n0} -> cap@{args.max_voxels} "
+                    f"= {c.shape[0]} (thresh={thresh:.4f})",
+                    file=sys.stderr, flush=True,
+                )
+            else:
+                c = pipeline.sample_sparse_structure(cond, 1, ss_params)
             if offload:
                 _move(["sparse_structure_flow_model", "sparse_structure_decoder"], "cpu")
                 torch.cuda.empty_cache()

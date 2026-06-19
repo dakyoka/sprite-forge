@@ -33,6 +33,7 @@
   "texture_size": null,
   "bake_mode": null,
   "trellis_fp16": null,
+  "trellis_max_voxels": null,
   "trellis_timeout_sec": 1200,
 
   "blender_exe": "",

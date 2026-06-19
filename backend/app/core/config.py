@@ -49,6 +49,8 @@ class Settings(BaseModel):
     texture_size: Optional[int] = None
     bake_mode: Optional[str] = None
     trellis_fp16: Optional[bool] = None
+    # opt-in: 疎構造ボクセル数の上限(高ボクセル入力を 8GB に収める)。null=無効。
+    trellis_max_voxels: Optional[int] = None
 
     trellis_timeout_sec: int = 3600
 

@@ -62,6 +62,8 @@ async def run(input_path: Path, job: Job) -> Path:
         cmd += ["--fp16"]
     elif settings.trellis_fp16 is False:
         cmd += ["--no-fp16"]
+    if settings.trellis_max_voxels is not None:
+        cmd += ["--max-voxels", str(settings.trellis_max_voxels)]
 
     # サブプロセスをライブストリーミングで実行する(別スレッドで読み取る)。
     # async ループを塞がないよう asyncio.to_thread で回す。
