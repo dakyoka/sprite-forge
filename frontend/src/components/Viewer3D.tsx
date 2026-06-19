@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef } from "react";
 import type { Job } from "@/lib/api";
-import { outputUrl } from "@/lib/api";
+import { outputUrl, inputUrl } from "@/lib/api";
 
 interface Props {
   job: Job | null;
@@ -83,11 +83,26 @@ export default function Viewer3D({ job }: Props) {
         </div>
       )}
 
-      {/* processing state (queued or running) */}
+      {/* processing state (queued or running) — 入力画像のサムネイルを表示 */}
       {(job?.status === "running" || job?.status === "queued") && (
         <div className="relative z-10 flex flex-col items-center gap-3">
-          <div className="w-12 h-12 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
-          <p className="text-[10px] text-blue-400 uppercase tracking-wider">処理中…</p>
+          <div className="relative w-40 h-40 rounded-lg border border-neutral-800 bg-neutral-900/60 overflow-hidden flex items-center justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={inputUrl(job.job_id)}
+              alt={job.filename}
+              className="w-full h-full object-contain opacity-80"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+            />
+            {job.status === "running" && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                <div className="w-10 h-10 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
+              </div>
+            )}
+          </div>
+          <p className="text-[10px] text-blue-400 uppercase tracking-wider">
+            {job.status === "queued" ? "キュー待機中…" : "処理中…"}
+          </p>
         </div>
       )}
 
@@ -112,6 +127,14 @@ export default function Viewer3D({ job }: Props) {
         <div className="relative z-10 flex flex-col items-center gap-2">
           <div className="text-6xl" style={{ filter: "drop-shadow(0 0 18px rgba(248,113,113,.4))" }}>⚠</div>
           <p className="text-[10px] text-red-400 uppercase tracking-wider">生成に失敗しました</p>
+        </div>
+      )}
+
+      {/* cancelled state */}
+      {job && job.status === "cancelled" && (
+        <div className="relative z-10 flex flex-col items-center gap-2">
+          <div className="text-5xl text-neutral-600">■</div>
+          <p className="text-[10px] text-neutral-500 uppercase tracking-wider">処理を中止しました</p>
         </div>
       )}
 

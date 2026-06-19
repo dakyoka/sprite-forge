@@ -17,11 +17,15 @@ export default function DropZone({ onFile, currentFile, disabled }: Props) {
     onFile(file);
   };
 
+  const handleMany = (files: FileList | null) => {
+    if (!files) return;
+    Array.from(files).forEach(handle);
+  };
+
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    const f = e.dataTransfer.files[0];
-    if (f) handle(f);
+    handleMany(e.dataTransfer.files);
   };
 
   return (
@@ -42,9 +46,10 @@ export default function DropZone({ onFile, currentFile, disabled }: Props) {
       <input
         ref={inputRef}
         type="file"
+        multiple
         className="hidden"
         accept="image/png,image/jpeg,image/webp"
-        onChange={(e) => e.target.files?.[0] && handle(e.target.files[0])}
+        onChange={(e) => { handleMany(e.target.files); e.target.value = ""; }}
       />
 
       {currentFile ? (

@@ -1,25 +1,50 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Job } from "@/lib/api";
+import { outputUrl } from "@/lib/api";
 
-const EMOJI: Record<string, string> = {
-  "building": "🏠", "church": "⛪", "shop": "🏪",
-  "gate": "🏰", "shrine": "⛩", "castle": "🏯",
-};
-function guessEmoji(name: string) {
-  const lower = name.toLowerCase();
-  for (const [k, v] of Object.entries(EMOJI)) if (lower.includes(k)) return v;
-  return "🏗";
+// model-viewer はカスタム要素。Viewer3D と同じキャスト方針で型を満たす(any 不使用)。
+const ModelViewer = "model-viewer" as unknown as React.FC<
+  React.HTMLAttributes<HTMLElement> & {
+    src: string;
+    "camera-controls"?: boolean | string;
+    "disable-zoom"?: boolean | string;
+    "interaction-prompt"?: string;
+    "auto-rotate"?: boolean | string;
+    exposure?: string;
+    loading?: string;
+    reveal?: string;
+  }
+>;
+
+/** 完了済みジョブの GLB を小さなライブ 3D プレビューとして描画する。 */
+function GlbThumb({ jobId, size }: { jobId: string; size: number }) {
+  useEffect(() => {
+    import("@google/model-viewer");
+  }, []);
+  return (
+    <ModelViewer
+      src={outputUrl(jobId)}
+      camera-controls={false}
+      disable-zoom
+      interaction-prompt="none"
+      exposure="0.9"
+      loading="lazy"
+      reveal="auto"
+      style={{ width: `${size}px`, height: `${size}px`, ["--poster-color" as string]: "transparent" }}
+    />
+  );
 }
 
 function Badge({ status }: { status: Job["status"] }) {
-  const map = {
+  const map: Record<Job["status"], string> = {
     completed: "bg-green-400/10 text-green-400",
     running:   "bg-blue-400/10  text-blue-400",
     queued:    "bg-neutral-700  text-neutral-400",
     failed:    "bg-red-400/10   text-red-400",
+    cancelled: "bg-neutral-700  text-neutral-400",
   };
-  const label = { completed: "完了", running: "処理中", queued: "待機中", failed: "失敗" };
+  const label: Record<Job["status"], string> = { completed: "完了", running: "処理中", queued: "待機中", failed: "失敗", cancelled: "中止" };
   return (
     <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded flex-shrink-0 ${map[status]}`}>
       {label[status]}
@@ -87,15 +112,15 @@ export default function HistoryPane({ jobs, selectedId, onSelect, currentJob }: 
 }
 
 function JobItem({ job, view, selected, onSelect }: { job: Job; view: "list" | "gallery"; selected: boolean; onSelect: (j: Job) => void }) {
-  const emoji = guessEmoji(job.filename);
   const time  = new Date(job.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  const hasGlb = job.status === "completed" && !!job.output_glb;
 
   if (view === "gallery") {
     return (
       <div onClick={() => onSelect(job)}
         className={`flex flex-col items-center gap-1.5 p-2 rounded border cursor-pointer transition-all ${selected ? "bg-neutral-800 border-neutral-600" : "border-transparent hover:bg-neutral-800 hover:border-neutral-700"}`}>
-        <div className="w-full h-16 rounded bg-neutral-800 border border-neutral-700 flex items-center justify-center text-3xl">
-          {emoji}
+        <div className="w-full h-16 rounded bg-neutral-800 border border-neutral-700 flex items-center justify-center overflow-hidden">
+          {hasGlb ? <GlbThumb jobId={job.job_id} size={64} /> : <span className="text-neutral-600 text-2xl">▣</span>}
         </div>
         <p className="text-[10px] font-semibold text-center truncate w-full">{job.filename.replace(/\.[^.]+$/, "")}</p>
         <p className="text-[8px] text-neutral-600">{time}</p>
@@ -107,8 +132,8 @@ function JobItem({ job, view, selected, onSelect }: { job: Job; view: "list" | "
   return (
     <div onClick={() => onSelect(job)}
       className={`flex items-center gap-2 px-2 py-1.5 rounded border cursor-pointer transition-all ${selected ? "bg-neutral-800 border-neutral-700" : "border-transparent hover:bg-neutral-800/60 hover:border-neutral-800"}`}>
-      <div className="w-10 h-10 flex-shrink-0 rounded bg-neutral-800 border border-neutral-700 flex items-center justify-center text-xl">
-        {emoji}
+      <div className="w-12 h-12 flex-shrink-0 rounded bg-neutral-800 border border-neutral-700 flex items-center justify-center overflow-hidden">
+        {hasGlb ? <GlbThumb jobId={job.job_id} size={48} /> : <span className="text-neutral-600 text-lg">▣</span>}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[11px] font-semibold truncate">{job.filename.replace(/\.[^.]+$/, "")}</p>

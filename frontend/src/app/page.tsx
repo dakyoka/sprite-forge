@@ -5,9 +5,10 @@ import PipelineSteps  from "@/components/PipelineSteps";
 import Viewer3D       from "@/components/Viewer3D";
 import LogPanel       from "@/components/LogPanel";
 import HistoryPane    from "@/components/HistoryPane";
+import QueuePane      from "@/components/QueuePane";
 import GpuBar         from "@/components/GpuBar";
 import BackendStatus  from "@/components/BackendStatus";
-import { startPipeline, getJob, listHistory, type Job } from "@/lib/api";
+import { startPipeline, listJobs, cancelJob, reorderQueue, type Job } from "@/lib/api";
 
 const PIPELINE_NODES = [
   { label: "画像読込",      color: "text-yellow-400", dot: "bg-yellow-400" },
@@ -19,69 +20,75 @@ const PIPELINE_NODES = [
 ];
 
 export default function Home() {
-  const [file,       setFile]       = useState<File | null>(null);
-  const [currentJob, setCurrentJob] = useState<Job | null>(null);
-  const [history,    setHistory]    = useState<Job[]>([]);
+  const [jobs,       setJobs]       = useState<Job[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobileTab,  setMobileTab]  = useState(0);
   const [error,      setError]      = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ジョブポーリング
-  const poll = useCallback(async (jobId: string) => {
-    // ポーリングがすでに停止済みなら何もしない（飛行中リクエストの競合防止）
-    if (!pollRef.current) return;
+  // 全ジョブをポーリングする(キュー順を含む)
+  const poll = useCallback(async () => {
     try {
-      const job = await getJob(jobId);
-      if (!pollRef.current) return; // レスポンス待機中に停止された場合は無視
-      setCurrentJob(job);
-      if (job.status === "completed" || job.status === "failed") {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-        if (job.status === "completed") setHistory((h) => [job, ...h.filter((j) => j.job_id !== job.job_id)]);
-      }
-    } catch (e: unknown) {
-      if (!pollRef.current) return;
-      // 404 = バックエンド再起動などでジョブが消えた → ポーリング停止してリセット
-      const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes("404") || msg.includes("not found") || msg.includes("Job not found")) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-        setCurrentJob(null);
-        setFile(null);
-        setError("バックエンドが再起動し、処理中のジョブが失われました。画像を再度ドロップしてください。");
-      }
+      const all = await listJobs();
+      setJobs(all);
+    } catch {
+      // バックエンド再起動などは無視(次のポーリングで復帰)
     }
   }, []);
 
-  // 画像ドロップ → 自動パイプライン開始
+  useEffect(() => {
+    // 初回取得は then コールバック経由で行う(effect 本体での同期 setState を避ける)
+    listJobs().then(setJobs).catch(() => {});
+    pollRef.current = setInterval(poll, 1500);
+    return () => {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    };
+  }, [poll]);
+
+  // 画像ドロップ/選択 → キューへ投入(複数可)
   const handleFile = useCallback(async (f: File) => {
-    setFile(f);
     setError(null);
-    setCurrentJob(null);
     try {
       const job = await startPipeline(f);
-      setCurrentJob(job);
+      setJobs((prev) => [...prev.filter((j) => j.job_id !== job.job_id), job]);
       setSelectedId(job.job_id);
-      if (pollRef.current) clearInterval(pollRef.current);
-      pollRef.current = setInterval(() => poll(job.job_id), 2000);
+      poll();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [poll]);
 
-  // 初期履歴読み込み
-  useEffect(() => {
-    listHistory().then(setHistory);
-    return () => {
-      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-    };
-  }, []);
+  const handleCancel = useCallback(async (jobId: string) => {
+    try {
+      await cancelJob(jobId);
+      poll();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [poll]);
 
-  const running = currentJob?.status === "running" || currentJob?.status === "queued";
-  const selectedJob = selectedId === currentJob?.job_id ? currentJob : history.find((j) => j.job_id === selectedId) ?? null;
+  const handleReorder = useCallback(async (order: string[]) => {
+    // 楽観的更新: queued の並びをローカルで先に反映する
+    setJobs((prev) => {
+      const byId = new Map(prev.map((j) => [j.job_id, j]));
+      const reordered = order.map((id) => byId.get(id)).filter((j): j is Job => !!j);
+      const rest = prev.filter((j) => !order.includes(j.job_id));
+      return [...reordered, ...rest];
+    });
+    try {
+      await reorderQueue(order);
+      poll();
+    } catch {
+      poll();
+    }
+  }, [poll]);
 
-  const activeRunningStep = currentJob?.steps.findIndex((s) => s.status === "running") ?? -1;
+  const running = jobs.find((j) => j.status === "running") ?? null;
+  const queued  = jobs.filter((j) => j.status === "queued");
+  const history = jobs.filter((j) => j.status === "completed");
+
+  const selectedJob = jobs.find((j) => j.job_id === selectedId) ?? running ?? null;
+  const isProcessing = selectedJob?.status === "running" || selectedJob?.status === "queued";
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
@@ -96,7 +103,7 @@ export default function Home() {
         {/* pipeline breadcrumb */}
         <div className="hidden lg:flex items-center mx-auto gap-0.5">
           {PIPELINE_NODES.map((n, i) => {
-            const step = currentJob?.steps[i];
+            const step = selectedJob?.steps[i];
             const isLit = step?.status === "running";
             return (
               <div key={n.label} className="flex items-center gap-0.5">
@@ -130,7 +137,7 @@ export default function Home() {
 
             <div>
               <p className="text-[9px] font-bold uppercase tracking-widest text-neutral-500 mb-2">素材画像</p>
-              <DropZone onFile={handleFile} currentFile={file} disabled={running} />
+              <DropZone onFile={handleFile} currentFile={null} />
             </div>
 
             {/* auto hint */}
@@ -139,7 +146,7 @@ export default function Home() {
               <div>
                 <p className="text-[11px] font-bold text-blue-400 mb-0.5">画像を読み込むと自動で処理が始まります</p>
                 <p className="text-[10px] text-blue-400/80 leading-relaxed">
-                  アップスケール → 背景除去 → Trellis 3D → Blender 後処理 → Godot 書き出しまで操作不要です。
+                  複数枚をまとめて投入できます。キューに並べて 1 枚ずつ自動処理します。
                 </p>
               </div>
             </div>
@@ -151,6 +158,21 @@ export default function Home() {
               </div>
             )}
 
+            {/* queue */}
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-neutral-500 mb-2">
+                処理キュー {(running ? 1 : 0) + queued.length > 0 && <span className="text-neutral-600">({(running ? 1 : 0) + queued.length})</span>}
+              </p>
+              <QueuePane
+                running={running}
+                queued={queued}
+                selectedId={selectedId}
+                onSelect={(j) => setSelectedId(j.job_id)}
+                onCancel={handleCancel}
+                onReorder={handleReorder}
+              />
+            </div>
+
             {/* GPU */}
             <div>
               <p className="text-[9px] font-bold uppercase tracking-widest text-neutral-500 mb-2">GPU リソース</p>
@@ -160,28 +182,33 @@ export default function Home() {
             {/* pipeline */}
             <div>
               <p className="text-[9px] font-bold uppercase tracking-widest text-neutral-500 mb-2">パイプライン進行状況</p>
-              {currentJob ? (
-                <PipelineSteps steps={currentJob.steps} />
+              {selectedJob ? (
+                <PipelineSteps steps={selectedJob.steps} />
               ) : (
                 <p className="text-[9px] text-neutral-700 uppercase tracking-wider">処理待ち</p>
               )}
             </div>
 
             {/* progress bar */}
-            {currentJob && (
+            {selectedJob && (
               <div>
                 <div className="flex justify-between text-[9px] mb-1">
                   <span className="text-neutral-600">進捗</span>
-                  <span className={running ? "text-blue-400 font-bold" : "text-green-400 font-bold"}>
-                    {currentJob.progress}%
-                    {running && " — 処理中"}
-                    {currentJob.status === "completed" && " — 完了"}
+                  <span className={isProcessing ? "text-blue-400 font-bold" : "text-green-400 font-bold"}>
+                    {selectedJob.progress}%
+                    {isProcessing && " — 処理中"}
+                    {selectedJob.status === "completed" && " — 完了"}
+                    {selectedJob.status === "cancelled" && " — 中止"}
                   </span>
                 </div>
                 <div className="h-1 bg-neutral-800 rounded overflow-hidden">
                   <div
-                    className={`h-full rounded transition-all duration-500 ${running ? "bg-blue-400" : currentJob.status === "completed" ? "bg-green-400" : "bg-red-400"}`}
-                    style={{ width: `${currentJob.progress}%` }}
+                    className={`h-full rounded transition-all duration-500 ${
+                      isProcessing ? "bg-blue-400" :
+                      selectedJob.status === "completed" ? "bg-green-400" :
+                      selectedJob.status === "cancelled" ? "bg-neutral-500" : "bg-red-400"
+                    }`}
+                    style={{ width: `${selectedJob.progress}%` }}
                   />
                 </div>
               </div>
@@ -197,18 +224,18 @@ export default function Home() {
           {/* log */}
           <div className="h-36 min-h-36 bg-neutral-900 border-t border-neutral-800 flex flex-col overflow-hidden">
             <div className="h-7 min-h-7 flex items-center px-3 gap-2 border-b border-neutral-800 flex-shrink-0">
-              {running && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
-              <span className={`text-[9px] font-bold uppercase tracking-widest ${running ? "text-blue-400" : "text-neutral-600"}`}>実行ログ</span>
-              {currentJob && (
+              {isProcessing && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
+              <span className={`text-[9px] font-bold uppercase tracking-widest ${isProcessing ? "text-blue-400" : "text-neutral-600"}`}>実行ログ</span>
+              {selectedJob && (
                 <div className="ml-auto flex items-center gap-2">
                   <div className="w-24 h-0.5 bg-neutral-800 rounded overflow-hidden">
-                    <div className={`h-full rounded transition-all duration-500 ${running ? "bg-blue-400" : "bg-green-400"}`} style={{ width: `${currentJob.progress}%` }} />
+                    <div className={`h-full rounded transition-all duration-500 ${isProcessing ? "bg-blue-400" : "bg-green-400"}`} style={{ width: `${selectedJob.progress}%` }} />
                   </div>
-                  <span className={`text-[9px] font-bold ${running ? "text-blue-400" : "text-green-400"}`}>{currentJob.progress}%</span>
+                  <span className={`text-[9px] font-bold ${isProcessing ? "text-blue-400" : "text-green-400"}`}>{selectedJob.progress}%</span>
                 </div>
               )}
             </div>
-            <LogPanel job={currentJob} />
+            <LogPanel job={selectedJob} />
           </div>
         </main>
 
@@ -216,7 +243,7 @@ export default function Home() {
         <aside className={`w-[348px] min-w-[348px] bg-neutral-900 border-l border-neutral-800 overflow-hidden ${mobileTab !== 2 ? "hidden lg:flex lg:flex-col" : "flex flex-col"}`}>
           <HistoryPane
             jobs={history}
-            currentJob={currentJob}
+            currentJob={running}
             selectedId={selectedId}
             onSelect={(j) => setSelectedId(j.job_id)}
           />

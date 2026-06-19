@@ -12,10 +12,11 @@ function fmtElapsed(sec: number): string {
 
 export default function LogPanel({ job }: { job: Job | null }) {
   const ref = useRef<HTMLDivElement>(null);
+  const liveLogs = job?.logs ?? [];
 
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [job]);
+  }, [job, liveLogs.length]);
 
   const runningStep = job?.steps.find((s) => s.status === "running");
   const hasRunning = !!runningStep;
@@ -70,6 +71,17 @@ export default function LogPanel({ job }: { job: Job | null }) {
           )}
         </div>
       ))}
+
+      {/* TRELLIS サブプロセスのライブログ(現在のフェーズが見える) */}
+      {liveLogs.length > 0 && (
+        <div className="mt-1.5 pt-1.5 border-t border-neutral-800/60">
+          {liveLogs.map((line, i) => (
+            <div key={`live-${i}`} className="text-neutral-500 whitespace-pre-wrap break-all">
+              <span className="text-purple-400/70">│</span> {line}
+            </div>
+          ))}
+        </div>
+      )}
       {job?.status === "completed" && (
         <div className="mt-1 text-green-400">
           [OK]  パイプライン完了 → Godot フォルダへ書き出しました ✓
