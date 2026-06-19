@@ -45,19 +45,42 @@ export default function Viewer3D({ job }: Props) {
         )}
       </div>
 
-      {/* 3D object (placeholder — model-viewer で置き換え可) */}
-      <div className="relative z-10 flex flex-col items-center gap-2">
-        <div
-          ref={objRef}
-          className="text-8xl"
-          style={{ animation: "spin3d 8s linear infinite", filter: "drop-shadow(0 0 28px rgba(167,139,250,.35))" }}
-        >
-          {job?.status === "running" ? "⚙" : emoji}
+      {/* empty state */}
+      {!job && (
+        <div className="relative z-10 flex flex-col items-center gap-3 text-center px-8">
+          <div className="w-16 h-16 rounded-xl border border-neutral-800 bg-neutral-900/60 flex items-center justify-center">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-neutral-700">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+            </svg>
+          </div>
+          <p className="text-[10px] text-neutral-700 uppercase tracking-wider leading-relaxed">
+            画像をドロップすると<br/>3D モデルがここに表示されます
+          </p>
         </div>
-        <p className="text-[9px] text-neutral-700 uppercase tracking-wider">
-          {job ? "↻ ドラッグで回転 · スクロールでズーム" : "画像をドロップすると 3D モデルがここに表示されます"}
-        </p>
-      </div>
+      )}
+
+      {/* processing state */}
+      {job?.status === "running" && (
+        <div className="relative z-10 flex flex-col items-center gap-3">
+          <div className="w-12 h-12 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
+          <p className="text-[10px] text-blue-400 uppercase tracking-wider">処理中…</p>
+        </div>
+      )}
+
+      {/* completed — show 3D placeholder */}
+      {job && job.status !== "running" && job.status !== "queued" && (
+        <div className="relative z-10 flex flex-col items-center gap-2">
+          <div
+            ref={objRef}
+            className="text-8xl"
+            style={{ filter: "drop-shadow(0 0 28px rgba(167,139,250,.35))" }}
+          >
+            {emoji}
+          </div>
+          <p className="text-[9px] text-neutral-600 uppercase tracking-wider">↻ ドラッグで回転 · スクロールでズーム</p>
+        </div>
+      )}
 
       {/* stats */}
       {job?.status === "completed" && (
@@ -71,7 +94,6 @@ export default function Viewer3D({ job }: Props) {
         </div>
       )}
 
-      <style>{`@keyframes spin3d{from{transform:rotateY(0deg) rotateX(8deg)}to{transform:rotateY(360deg) rotateX(8deg)}}`}</style>
     </div>
   );
 }

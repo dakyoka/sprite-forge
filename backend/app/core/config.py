@@ -15,7 +15,13 @@ class Settings(BaseModel):
     trellis_steps: int = 12
     trellis_fp16: bool = True
     upscale_factor: int = 4
-    cors_origins: list[str] = ["http://localhost:3000", "http://100.64.0.0/10"]
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3003",
+    ]
+    cors_origin_regex: str = r"http://(localhost|127\.0\.0\.1):\d+"
     output_dir: str = "output"
     log_level: str = "INFO"
 
