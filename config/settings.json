@@ -10,14 +10,14 @@
       "trellis_steps": 6,
       "texture_size": 512,
       "bake_mode": "fast",
-      "fp16": true
+      "fp16": false
     },
     "standard": {
       "max_vram_gb": 16,
       "trellis_steps": 12,
       "texture_size": 1024,
       "bake_mode": "fast",
-      "fp16": true
+      "fp16": false
     },
     "high": {
       "max_vram_gb": null,

@@ -20,14 +20,17 @@ def _setup_trellis_path():
     os.environ.setdefault("ATTN_BACKEND", "xformers")
     os.environ.setdefault("SPARSE_BACKEND", "spconv")
     os.environ.setdefault("SPCONV_ALGO", "native")
+    # VRAM 断片化によるスピル悪化を緩和 (8GB 環境で特に効く)
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
 _setup_trellis_path()
 
 
 def to_glb_fast(app_rep, mesh, simplify=0.95, fill_holes=True,
-                fill_holes_max_size=0.04, texture_size=512, nviews=100,
-                render_resolution=1024, verbose=True):
+                fill_holes_max_size=0.04, texture_size=512, nviews=40,
+                render_resolution=512, fill_holes_resolution=512,
+                fill_holes_num_views=200, verbose=True):
     """
     postprocessing_utils.to_glb 相当のロジックだが、テクスチャベイクを
     高速モード(mode='fast': 勾配最適化なし、ラスタライズ+scatter_add+inpaint)で行う。
@@ -52,6 +55,9 @@ def to_glb_fast(app_rep, mesh, simplify=0.95, fill_holes=True,
     faces = mesh.faces.cpu().numpy()
 
     # メッシュ後処理 (簡略化 + 不可視面除去 + 穴埋め)
+    # fill_holes のビュー数/解像度は VRAM とレンダリング時間を最も食う箇所なので
+    # 8GB 環境向けに大幅に下げる (品質はやや低下するが現実的な時間で完了させる)。
+    print(f"[TRELLIS] postprocess_mesh (fill_holes views={fill_holes_num_views}, res={fill_holes_resolution})...", file=sys.stderr)
     vertices, faces = postprocess_mesh(
         vertices, faces,
         simplify=simplify > 0,
@@ -59,16 +65,18 @@ def to_glb_fast(app_rep, mesh, simplify=0.95, fill_holes=True,
         fill_holes=fill_holes,
         fill_holes_max_hole_size=fill_holes_max_size,
         fill_holes_max_hole_nbe=int(250 * np.sqrt(1 - simplify)),
-        fill_holes_resolution=1024,
-        fill_holes_num_views=1000,
+        fill_holes_resolution=fill_holes_resolution,
+        fill_holes_num_views=fill_holes_num_views,
         debug=False,
         verbose=verbose,
     )
 
     # UV展開
+    print("[TRELLIS] parametrize_mesh (UV unwrap)...", file=sys.stderr)
     vertices, faces, uvs = parametrize_mesh(vertices, faces)
 
     # マルチビュー観測をレンダリング
+    print(f"[TRELLIS] render_multiview (nviews={nviews}, res={render_resolution})...", file=sys.stderr)
     observations, extrinsics, intrinsics = render_multiview(
         app_rep, resolution=render_resolution, nviews=nviews
     )
@@ -175,8 +183,8 @@ def main():
     parser.add_argument("--gpu-preset", default=None, help='"low"|"standard"|"high" でプリセット強制')
     parser.add_argument("--cfg-strength-sparse", type=float, default=7.5)
     parser.add_argument("--cfg-strength-slat",   type=float, default=3.0)
-    parser.add_argument("--nviews", type=int, default=100)
-    parser.add_argument("--render-resolution", type=int, default=1024)
+    parser.add_argument("--nviews", type=int, default=40)
+    parser.add_argument("--render-resolution", type=int, default=512)
     parser.add_argument("--fp16",    dest="fp16", action="store_true",  default=None)
     parser.add_argument("--no-fp16", dest="fp16", action="store_false")
     args = parser.parse_args()
@@ -225,6 +233,9 @@ def main():
         outputs = pipeline.run(
             image,
             seed=42,
+            # GLB 化に必要なのは mesh と gaussian のみ。radiance_field のデコードを
+            # 省略して VRAM とデコード時間を削減する。
+            formats=["mesh", "gaussian"],
             sparse_structure_sampler_params={
                 "steps": steps,
                 "cfg_strength": args.cfg_strength_sparse,
@@ -234,6 +245,9 @@ def main():
                 "cfg_strength": args.cfg_strength_slat,
             },
         )
+    print("[TRELLIS] Sampling + decode done. Starting GLB export...", file=sys.stderr)
+    if device == "cuda":
+        torch.cuda.empty_cache()
 
     glb_path = Path(args.output)
     if bake_mode == "opt":

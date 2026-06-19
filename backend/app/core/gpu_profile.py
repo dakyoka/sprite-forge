@@ -19,8 +19,8 @@ _CONFIG_PATH = Path(__file__).parents[3] / "config" / "settings.json"
 
 # settings.json が無い場合のフォールバックのみ。値の正本は settings.json。
 _FALLBACK_PRESETS = {
-    "low": {"max_vram_gb": 10, "trellis_steps": 6, "texture_size": 512, "bake_mode": "fast", "fp16": True},
-    "standard": {"max_vram_gb": 16, "trellis_steps": 12, "texture_size": 1024, "bake_mode": "fast", "fp16": True},
+    "low": {"max_vram_gb": 10, "trellis_steps": 6, "texture_size": 512, "bake_mode": "fast", "fp16": False},
+    "standard": {"max_vram_gb": 16, "trellis_steps": 12, "texture_size": 1024, "bake_mode": "fast", "fp16": False},
     "high": {"max_vram_gb": None, "trellis_steps": 25, "texture_size": 2048, "bake_mode": "opt", "fp16": False},
 }
 
