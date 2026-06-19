@@ -47,26 +47,31 @@ def main():
     if device == "cpu":
         print("WARNING: CUDA not available, running on CPU (very slow)", file=sys.stderr)
 
-    print(f"[TRELLIS] Loading model: {args.model} (device={device})", file=sys.stderr)
+    print(f"[TRELLIS] Loading model: {args.model} (device={device}, fp16={args.fp16})", file=sys.stderr)
     pipeline = TrellisImageTo3DPipeline.from_pretrained(args.model)
+    if args.fp16 and device == "cuda":
+        for m in pipeline.models.values():
+            m.half()
     pipeline.to(device)
 
     from PIL import Image
     image = Image.open(args.input).convert("RGBA")
 
-    print(f"[TRELLIS] Running inference (steps={args.steps})...", file=sys.stderr)
-    outputs = pipeline.run(
-        image,
-        seed=42,
-        sparse_structure_sampler_params={
-            "steps": args.steps,
-            "cfg_strength": args.cfg_strength_sparse,
-        },
-        slat_sampler_params={
-            "steps": args.steps,
-            "cfg_strength": args.cfg_strength_slat,
-        },
-    )
+    print(f"[TRELLIS] Running inference (steps={args.steps}, fp16={args.fp16}, device={device})...", file=sys.stderr)
+    autocast_ctx = torch.cuda.amp.autocast(dtype=torch.float16) if (args.fp16 and device == "cuda") else torch.no_grad()
+    with autocast_ctx:
+        outputs = pipeline.run(
+            image,
+            seed=42,
+            sparse_structure_sampler_params={
+                "steps": args.steps,
+                "cfg_strength": args.cfg_strength_sparse,
+            },
+            slat_sampler_params={
+                "steps": args.steps,
+                "cfg_strength": args.cfg_strength_slat,
+            },
+        )
 
     glb_path = Path(args.output)
     print(f"[TRELLIS] Exporting GLB: {glb_path}", file=sys.stderr)
