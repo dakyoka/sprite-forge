@@ -1,65 +1,216 @@
-import Image from "next/image";
+"use client";
+import { useState, useEffect, useCallback, useRef } from "react";
+import DropZone       from "@/components/DropZone";
+import PipelineSteps  from "@/components/PipelineSteps";
+import Viewer3D       from "@/components/Viewer3D";
+import LogPanel       from "@/components/LogPanel";
+import HistoryPane    from "@/components/HistoryPane";
+import GpuBar         from "@/components/GpuBar";
+import { startPipeline, getJob, listHistory, type Job } from "@/lib/api";
+
+const PIPELINE_NODES = [
+  { label: "画像読込",      color: "text-yellow-400", dot: "bg-yellow-400" },
+  { label: "アップスケール", color: "text-orange-400", dot: "bg-orange-400" },
+  { label: "背景除去",      color: "text-blue-400",   dot: "bg-blue-400"   },
+  { label: "Trellis 3D",   color: "text-purple-400", dot: "bg-purple-400" },
+  { label: "Blender 後処理", color: "text-teal-400",  dot: "bg-teal-400"   },
+  { label: "Godot 書き出し", color: "text-green-400", dot: "bg-green-400"  },
+];
 
 export default function Home() {
+  const [file,       setFile]       = useState<File | null>(null);
+  const [currentJob, setCurrentJob] = useState<Job | null>(null);
+  const [history,    setHistory]    = useState<Job[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mobileTab,  setMobileTab]  = useState(0);
+  const [error,      setError]      = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ジョブポーリング
+  const poll = useCallback(async (jobId: string) => {
+    try {
+      const job = await getJob(jobId);
+      setCurrentJob(job);
+      if (job.status === "completed" || job.status === "failed") {
+        if (pollRef.current) clearInterval(pollRef.current);
+        if (job.status === "completed") setHistory((h) => [job, ...h.filter((j) => j.job_id !== job.job_id)]);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // 画像ドロップ → 自動パイプライン開始
+  const handleFile = useCallback(async (f: File) => {
+    setFile(f);
+    setError(null);
+    setCurrentJob(null);
+    try {
+      const job = await startPipeline(f);
+      setCurrentJob(job);
+      setSelectedId(job.job_id);
+      pollRef.current = setInterval(() => poll(job.job_id), 2000);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [poll]);
+
+  // 初期履歴読み込み
+  useEffect(() => {
+    listHistory().then(setHistory);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  const running = currentJob?.status === "running" || currentJob?.status === "queued";
+  const selectedJob = selectedId === currentJob?.job_id ? currentJob : history.find((j) => j.job_id === selectedId) ?? null;
+
+  const activeRunningStep = currentJob?.steps.findIndex((s) => s.status === "running") ?? -1;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="flex flex-col h-screen overflow-hidden">
+
+      {/* ── HEADER ── */}
+      <header className="h-10 min-h-10 bg-neutral-900 border-b border-neutral-800 flex items-center gap-2.5 px-3.5 flex-shrink-0">
+        <span className="text-[13px] font-black tracking-[.18em] uppercase text-yellow-400">SpriteForge</span>
+        <span className="text-[10px] text-neutral-700">(SF)</span>
+        <span className="text-neutral-700 mx-1">|</span>
+        <span className="text-[9px] uppercase tracking-widest text-neutral-600 hidden sm:block">2D スプライト → 3D モデル 全自動パイプライン</span>
+
+        {/* pipeline breadcrumb */}
+        <div className="hidden lg:flex items-center mx-auto gap-0.5">
+          {PIPELINE_NODES.map((n, i) => {
+            const step = currentJob?.steps[i];
+            const isLit = step?.status === "running";
+            return (
+              <div key={n.label} className="flex items-center gap-0.5">
+                <div className={`flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-sm ${n.color} ${isLit ? "bg-white/5" : ""}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full ${n.dot} ${isLit ? "animate-pulse" : "opacity-30"}`} />
+                  {n.label}
+                </div>
+                {i < PIPELINE_NODES.length - 1 && <span className="text-neutral-700 text-[10px]">→</span>}
+              </div>
+            );
+          })}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+
+        <button className="ml-auto text-[9px] font-bold uppercase tracking-wider text-neutral-500 border border-neutral-700 bg-neutral-800 px-2.5 py-1 rounded hover:text-white transition-colors">
+          ⚙ Config
+        </button>
+      </header>
+
+      {/* ── BODY ── */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* ── LEFT PANE ── */}
+        <aside className={`w-[400px] min-w-[400px] bg-neutral-900 border-r border-neutral-800 flex flex-col overflow-hidden ${mobileTab !== 0 ? "hidden lg:flex" : "flex"}`}>
+          <div className="h-8 min-h-8 bg-neutral-900/80 border-b border-neutral-800 flex items-center px-3 gap-2 flex-shrink-0">
+            <span className="text-[9px] font-black uppercase tracking-widest text-yellow-400">◈ Generation</span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-neutral-500 mb-2">素材画像</p>
+              <DropZone onFile={handleFile} currentFile={file} disabled={running} />
+            </div>
+
+            {/* auto hint */}
+            <div className="bg-blue-400/5 border border-blue-400/18 rounded p-3 flex gap-2 items-start">
+              <span className="text-base flex-shrink-0">⚡</span>
+              <div>
+                <p className="text-[11px] font-bold text-blue-400 mb-0.5">画像を読み込むと自動で処理が始まります</p>
+                <p className="text-[10px] text-blue-400/80 leading-relaxed">
+                  アップスケール → 背景除去 → Trellis 3D → Blender 後処理 → Godot 書き出しまで操作不要です。
+                </p>
+              </div>
+            </div>
+
+            {/* error */}
+            {error && (
+              <div className="bg-red-400/8 border border-red-400/25 rounded p-3 text-[10px] text-red-400">
+                ⚠ {error}
+              </div>
+            )}
+
+            {/* GPU */}
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-neutral-500 mb-2">GPU リソース</p>
+              <GpuBar />
+            </div>
+
+            {/* pipeline */}
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-neutral-500 mb-2">パイプライン進行状況</p>
+              {currentJob ? (
+                <PipelineSteps steps={currentJob.steps} />
+              ) : (
+                <p className="text-[9px] text-neutral-700 uppercase tracking-wider">処理待ち</p>
+              )}
+            </div>
+
+            {/* progress bar */}
+            {currentJob && (
+              <div>
+                <div className="flex justify-between text-[9px] mb-1">
+                  <span className="text-neutral-600">進捗</span>
+                  <span className={running ? "text-blue-400 font-bold" : "text-green-400 font-bold"}>
+                    {currentJob.progress}%
+                    {running && " — 処理中"}
+                    {currentJob.status === "completed" && " — 完了"}
+                  </span>
+                </div>
+                <div className="h-1 bg-neutral-800 rounded overflow-hidden">
+                  <div
+                    className={`h-full rounded transition-all duration-500 ${running ? "bg-blue-400" : currentJob.status === "completed" ? "bg-green-400" : "bg-red-400"}`}
+                    style={{ width: `${currentJob.progress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </aside>
+
+        {/* ── CENTER PANE ── */}
+        <main className={`flex-1 bg-neutral-950 flex flex-col overflow-hidden min-w-0 ${mobileTab !== 1 ? "hidden lg:flex" : "flex"}`}>
+          <div className="flex-1 overflow-hidden">
+            <Viewer3D job={selectedJob} />
+          </div>
+          {/* log */}
+          <div className="h-36 min-h-36 bg-neutral-900 border-t border-neutral-800 flex flex-col overflow-hidden">
+            <div className="h-7 min-h-7 flex items-center px-3 gap-2 border-b border-neutral-800 flex-shrink-0">
+              {running && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />}
+              <span className={`text-[9px] font-bold uppercase tracking-widest ${running ? "text-blue-400" : "text-neutral-600"}`}>実行ログ</span>
+              {currentJob && (
+                <div className="ml-auto flex items-center gap-2">
+                  <div className="w-24 h-0.5 bg-neutral-800 rounded overflow-hidden">
+                    <div className={`h-full rounded transition-all duration-500 ${running ? "bg-blue-400" : "bg-green-400"}`} style={{ width: `${currentJob.progress}%` }} />
+                  </div>
+                  <span className={`text-[9px] font-bold ${running ? "text-blue-400" : "text-green-400"}`}>{currentJob.progress}%</span>
+                </div>
+              )}
+            </div>
+            <LogPanel job={currentJob} />
+          </div>
+        </main>
+
+        {/* ── RIGHT PANE ── */}
+        <aside className={`w-[348px] min-w-[348px] bg-neutral-900 border-l border-neutral-800 overflow-hidden ${mobileTab !== 2 ? "hidden lg:flex lg:flex-col" : "flex flex-col"}`}>
+          <HistoryPane
+            jobs={history}
+            currentJob={currentJob}
+            selectedId={selectedId}
+            onSelect={(j) => setSelectedId(j.job_id)}
+          />
+        </aside>
+      </div>
+
+      {/* ── MOBILE NAV ── */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 h-14 bg-neutral-900 border-t border-neutral-800 flex z-50">
+        {[["◈", "生成"], ["▣", "3D"], ["≡", "履歴"], ["⚙", "設定"]].map(([icon, label], i) => (
+          <button key={i} onClick={() => setMobileTab(i)}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-colors ${mobileTab === i ? "text-yellow-400" : "text-neutral-600"}`}>
+            <span className="text-lg">{icon}</span>
+            <span className="text-[8px] font-bold uppercase tracking-wider">{label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }
