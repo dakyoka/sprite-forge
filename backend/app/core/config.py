@@ -1,0 +1,30 @@
+"""
+SSOT: 全設定はここと config/settings.json だけで管理する。
+他のファイルで設定値をハードコードしないこと。
+"""
+import json
+from pathlib import Path
+from pydantic import BaseModel
+
+_CONFIG_PATH = Path(__file__).parents[3] / "config" / "settings.json"
+
+
+class Settings(BaseModel):
+    godot_export_path: str = "C:/godot-project/assets/prototype/buildings"
+    trellis_model: str = "microsoft/TRELLIS-image-large"
+    trellis_steps: int = 12
+    trellis_fp16: bool = True
+    upscale_factor: int = 4
+    cors_origins: list[str] = ["http://localhost:3000", "http://100.64.0.0/10"]
+    output_dir: str = "output"
+    log_level: str = "INFO"
+
+    @classmethod
+    def load(cls) -> "Settings":
+        if _CONFIG_PATH.exists():
+            data = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+            return cls(**data)
+        return cls()
+
+
+settings = Settings.load()

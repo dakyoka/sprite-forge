@@ -1,0 +1,13 @@
+{
+  "godot_export_path": "C:/godot-project/assets/prototype/buildings",
+  "trellis_model": "microsoft/TRELLIS-image-large",
+  "trellis_steps": 12,
+  "trellis_fp16": true,
+  "upscale_factor": 4,
+  "cors_origins": [
+    "http://localhost:3000",
+    "http://100.64.0.0/10"
+  ],
+  "output_dir": "output",
+  "log_level": "INFO"
+}
