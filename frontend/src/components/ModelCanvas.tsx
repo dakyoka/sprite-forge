@@ -1,22 +1,38 @@
 "use client";
 import { Suspense, useEffect, useLayoutEffect } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
-import { Grid, Html, OrbitControls, useGLTF } from "@react-three/drei";
+import { Environment, Grid, Html, OrbitControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import type { EnvId } from "./environments";
+// HDRI はオフライン同梱(@pmndrs/assets, data URI)。CDN 不要。
+import skyHdri from "@pmndrs/assets/hdri/sky.exr";
+import sunsetHdri from "@pmndrs/assets/hdri/sunset.exr";
+import nightHdri from "@pmndrs/assets/hdri/night.exr";
+import cityHdri from "@pmndrs/assets/hdri/city.exr";
+
+// studio 以外の環境に対応する HDRI(equirectangular data URI)。
+const HDRI_FILES: Partial<Record<EnvId, string>> = {
+  sky: skyHdri,
+  sunset: sunsetHdri,
+  night: nightHdri,
+  city: cityHdri,
+};
 
 export interface ModelCanvasProps {
   /** GLB の配信 URL */
   url: string;
   autoRotate: boolean;
   wireframe: boolean;
-  /** 環境光の強さ */
+  /** 環境光 = IBL(環境マップ)の強さ。scene.environmentIntensity に連動。 */
   ambient: number;
   /** キーとなる平行光源の強さ */
   keyLight: number;
   /** レンダラのトーンマッピング露出 */
   exposure: number;
+  /** 選択中の環境(IBL/背景) */
+  envId: EnvId;
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
 }
 
@@ -30,8 +46,12 @@ function ExposureUpdater({ exposure }: { exposure: number }) {
   return null;
 }
 
-/** RoomEnvironment を PMREM 化して PBR 反射用の環境マップを設定(CDN 不要・オフライン可)。 */
-function StudioEnvironment() {
+/**
+ * 中立スタジオ環境。RoomEnvironment を PMREM 化して色被りのない IBL を作る
+ * (CDN 不要・オフライン可)。背景はダーク(#0a0a0a)のままにしてグリッドを活かす。
+ * `intensity` で scene.environmentIntensity を制御し、環境光スライダーに反応させる。
+ */
+function StudioEnvironment({ intensity }: { intensity: number }) {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
   useEffect(() => {
@@ -39,12 +59,18 @@ function StudioEnvironment() {
     const envScene = new RoomEnvironment();
     const rt = pmrem.fromScene(envScene, 0.04);
     scene.environment = rt.texture;
+    const prevBg = scene.background;
+    scene.background = new THREE.Color("#0a0a0a");
     return () => {
       scene.environment = null;
+      scene.background = prevBg;
       rt.dispose();
       pmrem.dispose();
     };
   }, [gl, scene]);
+  useEffect(() => {
+    scene.environmentIntensity = intensity;
+  }, [scene, intensity]);
   return null;
 }
 
@@ -135,8 +161,10 @@ export default function ModelCanvas({
   ambient,
   keyLight,
   exposure,
+  envId,
   controlsRef,
 }: ModelCanvasProps) {
+  const hdri = HDRI_FILES[envId];
   return (
     <Canvas
       dpr={[1, 2]}
@@ -144,15 +172,28 @@ export default function ModelCanvas({
       gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       style={{ width: "100%", height: "100%" }}
     >
-      <color attach="background" args={["#0a0a0a"]} />
       <ExposureUpdater exposure={exposure} />
 
-      <ambientLight intensity={ambient} />
+      {/* 直接光。IBL(環境マップ)の強さは環境光スライダーで下げられるので、
+          キーライトを動かすと反射ハイライトと陰影に確実に効く。 */}
+      <ambientLight intensity={ambient * 0.35} />
       <directionalLight position={[5, 8, 5]} intensity={keyLight} castShadow />
       <directionalLight position={[-6, 4, -4]} intensity={keyLight * 0.25} />
 
+      {/* 環境(IBL/背景)。studio は中立グレー+ダーク背景、それ以外は HDRI を
+          環境マップ兼背景に使い「その環境の中」にモデルを置く。
+          environmentIntensity は環境光スライダー(ambient)に連動させて応答させる。 */}
       <Suspense fallback={null}>
-        <StudioEnvironment />
+        {envId === "studio" || !hdri ? (
+          <StudioEnvironment intensity={ambient} />
+        ) : (
+          <Environment
+            files={hdri}
+            background
+            backgroundIntensity={1}
+            environmentIntensity={ambient}
+          />
+        )}
       </Suspense>
 
       {/* 3D の床グリッド(XZ 平面・遠近に従う) */}

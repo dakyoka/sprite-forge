@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import type { Job } from "@/lib/api";
 import { outputUrl, inputUrl } from "@/lib/api";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import { ENVIRONMENTS, DEFAULT_ENV, type EnvId } from "./environments";
 
 interface Props {
   job: Job | null;
@@ -36,7 +37,8 @@ const chipIdle =
 const chipActive = "bg-purple-500 border-purple-500 text-white hover:bg-purple-600";
 
 // ライティングのデフォルト値(初期状態でしっかり見えるように)
-const DEFAULT_AMBIENT = 0.6;
+// 環境光は IBL(scene.environmentIntensity)の強さ。1.0 を基準にする。
+const DEFAULT_AMBIENT = 1.0;
 const DEFAULT_KEY = 2.6;
 const DEFAULT_EXPOSURE = 1.0;
 
@@ -52,6 +54,9 @@ export default function Viewer3D({ job }: Props) {
   const [ambient, setAmbient] = useState(DEFAULT_AMBIENT);
   const [keyLight, setKeyLight] = useState(DEFAULT_KEY);
   const [exposure, setExposure] = useState(DEFAULT_EXPOSURE);
+
+  // 選択中の環境(IBL/背景)
+  const [envId, setEnvId] = useState<EnvId>(DEFAULT_ENV);
 
   const handleReset = () => {
     // OrbitControls の保存状態(初回フレーミング)へ戻す。
@@ -115,7 +120,7 @@ export default function Viewer3D({ job }: Props) {
       {isCompleted && showLights && (
         <div className="absolute top-12 right-2.5 w-44 bg-neutral-900/90 border border-neutral-700 rounded-md p-3 z-20 backdrop-blur-sm flex flex-col gap-3 shadow-xl">
           <LightSlider
-            label="環境光"
+            label="環境光 (IBL)"
             value={ambient}
             min={0}
             max={3}
@@ -148,6 +153,38 @@ export default function Viewer3D({ job }: Props) {
           >
             初期値に戻す
           </button>
+        </div>
+      )}
+
+      {/* 環境切り替え(左端の縦ストリップ)。各環境を映した球サムネイルで一目で判別。 */}
+      {isCompleted && (
+        <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-20">
+          {ENVIRONMENTS.map((env) => {
+            const active = env.id === envId;
+            return (
+              <button
+                key={env.id}
+                onClick={() => setEnvId(env.id)}
+                aria-pressed={active}
+                title={env.label}
+                className={`group relative w-8 h-8 rounded-full transition-transform hover:scale-110 ${
+                  active ? "scale-110" : ""
+                }`}
+              >
+                <span
+                  className={`block w-full h-full rounded-full ring-1 shadow-md ${
+                    active
+                      ? "ring-2 ring-purple-400 shadow-purple-500/40"
+                      : "ring-black/40 group-hover:ring-white/40"
+                  }`}
+                  style={{ backgroundImage: env.ball }}
+                />
+                <span className="pointer-events-none absolute left-10 top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-neutral-900/90 border border-neutral-700 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-neutral-200 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {env.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -199,6 +236,7 @@ export default function Viewer3D({ job }: Props) {
           ambient={ambient}
           keyLight={keyLight}
           exposure={exposure}
+          envId={envId}
           controlsRef={controlsRef}
         />
       )}
