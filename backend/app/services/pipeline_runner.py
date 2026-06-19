@@ -2,7 +2,9 @@
 パイプライン全体の実行オーケストレーター。
 各ステップは独立したサービスモジュールに委譲する。
 """
+import asyncio
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -52,8 +54,36 @@ async def run_pipeline(job: Job, input_path: Path, store: dict):
     job.status = JobStatus.completed
     job.output_glb = str(current_path)
     job.progress = 100
+
+    # GLB の実統計(サイズ・頂点数・面数)を計算する。
+    # 統計の取得失敗で完了したジョブを失敗扱いにはしない(ベストエフォート)。
+    size, verts, faces = await asyncio.to_thread(_glb_stats, current_path)
+    job.glb_size = size
+    job.vertices = verts
+    job.faces = faces
+
     _sync(job, store)
     logger.info(f"[{job.job_id}] pipeline completed → {current_path}")
+
+
+def _glb_stats(path: Path) -> tuple[int | None, int | None, int | None]:
+    """GLB ファイルサイズ(bytes)・頂点数・面数を返す。失敗時はその項目を None にする。"""
+    size: int | None = None
+    verts: int | None = None
+    faces: int | None = None
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        pass
+    # trimesh は TRELLIS の依存で .venv に入っている想定。import/load 失敗時は None のまま継続。
+    try:
+        import trimesh
+        mesh = trimesh.load(str(path), force="mesh")
+        verts = int(mesh.vertices.shape[0])
+        faces = int(mesh.faces.shape[0])
+    except Exception as e:
+        logger.warning(f"GLB stats (trimesh) skipped: {e}")
+    return size, verts, faces
 
 
 def _mark(job: Job, step_id: str, status: StepStatus, detail: str = ""):

@@ -45,6 +45,9 @@ class Job(BaseModel):
         PipelineStep(step_id="godot",     label="Godot 書き出し"),
     ])
     output_glb:  str | None = None
+    glb_size:    int | None = None   # GLB ファイルサイズ(bytes)
+    vertices:    int | None = None   # 頂点数
+    faces:       int | None = None   # 面(ポリゴン)数
     created_at:  datetime = Field(default_factory=datetime.utcnow)
     updated_at:  datetime = Field(default_factory=datetime.utcnow)
     error_msg:   str | None = None

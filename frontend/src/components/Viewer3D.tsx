@@ -1,21 +1,44 @@
 "use client";
 import { useEffect, useRef } from "react";
 import type { Job } from "@/lib/api";
+import { outputUrl } from "@/lib/api";
 
 interface Props {
   job: Job | null;
 }
 
-export default function Viewer3D({ job }: Props) {
-  const objRef = useRef<HTMLDivElement>(null);
+// model-viewer はカスタム要素。TypeScript を満たすためにキャストする(any は使わない)。
+const ModelViewer = "model-viewer" as unknown as React.FC<
+  React.HTMLAttributes<HTMLElement> & {
+    src: string;
+    "camera-controls"?: boolean | string;
+    "auto-rotate"?: boolean | string;
+    "auto-rotate-delay"?: string;
+    "rotation-per-second"?: string;
+    "shadow-intensity"?: string;
+    exposure?: string;
+    "environment-image"?: string;
+    ar?: boolean;
+    ref?: React.Ref<HTMLElement>;
+  }
+>;
 
-  const emoji = job?.filename
-    ? job.filename.toLowerCase().includes("church") ? "⛪"
-    : job.filename.toLowerCase().includes("shop")   ? "🏪"
-    : job.filename.toLowerCase().includes("gate")   ? "🏰"
-    : job.filename.toLowerCase().includes("shrine") ? "⛩"
-    : "🏠"
-    : "🏗";
+function fmtNum(n: number | null): string {
+  return n == null ? "—" : n.toLocaleString("en-US");
+}
+
+function fmtSize(bytes: number | null): string {
+  if (bytes == null) return "—";
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export default function Viewer3D({ job }: Props) {
+  const mvRef = useRef<HTMLElement>(null);
+
+  // Web コンポーネントをクライアント側で登録する
+  useEffect(() => {
+    import("@google/model-viewer");
+  }, []);
 
   return (
     <div className="w-full h-full bg-[#030303] relative overflow-hidden flex flex-col items-center justify-center">
@@ -38,7 +61,7 @@ export default function Viewer3D({ job }: Props) {
           Reset
         </button>
         {job?.output_glb && (
-          <a href={`/api/output/${job.job_id}`}
+          <a href={outputUrl(job.job_id)} download
             className="bg-black/75 border border-purple-400/30 text-purple-400 px-2 py-1 text-[9px] font-bold uppercase tracking-wider rounded hover:text-purple-300 transition-colors">
             GLB ↓
           </a>
@@ -68,27 +91,42 @@ export default function Viewer3D({ job }: Props) {
         </div>
       )}
 
-      {/* completed or failed — show 3D placeholder */}
-      {job && job.status !== "running" && job.status !== "queued" && (
+      {/* completed — real 3D model */}
+      {job && job.status === "completed" && job.output_glb && (
+        <ModelViewer
+          key={job.job_id}
+          ref={mvRef}
+          src={outputUrl(job.job_id)}
+          camera-controls
+          auto-rotate
+          auto-rotate-delay="0"
+          rotation-per-second="18deg"
+          shadow-intensity="1"
+          exposure="0.9"
+          style={{ width: "100%", height: "100%" }}
+        />
+      )}
+
+      {/* failed state */}
+      {job && job.status === "failed" && (
         <div className="relative z-10 flex flex-col items-center gap-2">
-          <div
-            ref={objRef}
-            className="text-8xl"
-            style={{ filter: "drop-shadow(0 0 28px rgba(167,139,250,.35))" }}
-          >
-            {emoji}
-          </div>
-          <p className="text-[9px] text-neutral-600 uppercase tracking-wider">↻ ドラッグで回転 · スクロールでズーム</p>
+          <div className="text-6xl" style={{ filter: "drop-shadow(0 0 18px rgba(248,113,113,.4))" }}>⚠</div>
+          <p className="text-[10px] text-red-400 uppercase tracking-wider">生成に失敗しました</p>
         </div>
       )}
 
       {/* stats */}
       {job?.status === "completed" && (
         <div className="absolute bottom-2.5 left-2.5 flex gap-1.5 z-10">
-          {[["🔷", "頂点"], ["🔶", "ポリゴン"], ["💾", "サイズ"], ["📄", "形式"]].map(([icon, label], i) => (
-            <div key={i} className="bg-black/80 border border-neutral-700 px-2 py-1 rounded text-center">
-              <p className="text-[11px] font-bold text-neutral-200">{["18,452","36,904","2.1 MB","GLB"][i]}</p>
-              <p className="text-[8px] text-neutral-600 uppercase tracking-wider">{label}</p>
+          {([
+            ["🔷", "頂点", fmtNum(job.vertices)],
+            ["🔶", "ポリゴン", fmtNum(job.faces)],
+            ["💾", "サイズ", fmtSize(job.glb_size)],
+            ["📄", "形式", "GLB"],
+          ] as const).map(([icon, label, value]) => (
+            <div key={label} className="bg-black/80 border border-neutral-700 px-2 py-1 rounded text-center">
+              <p className="text-[11px] font-bold text-neutral-200">{value}</p>
+              <p className="text-[8px] text-neutral-600 uppercase tracking-wider">{icon} {label}</p>
             </div>
           ))}
         </div>

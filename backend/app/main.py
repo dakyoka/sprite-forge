@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.routes import pipeline, jobs, history
+from app.routes import pipeline, jobs, history, output
 from app.core.config import settings
 
 app = FastAPI(
@@ -27,6 +27,7 @@ app.add_middleware(
 app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
 app.include_router(jobs.router,     prefix="/api/jobs",     tags=["jobs"])
 app.include_router(history.router,  prefix="/api/history",  tags=["history"])
+app.include_router(output.router,   prefix="/api/output",   tags=["output"])
 
 
 @app.get("/api/health")
