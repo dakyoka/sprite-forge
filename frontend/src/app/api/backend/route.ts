@@ -1,0 +1,84 @@
+/**
+ * バックエンド(FastAPI/uvicorn)の起動・状態確認用 API ルート。
+ *
+ * ブラウザから直接ローカルプロセスは起動できないため、Next.js のサーバー側
+ * (Node ランタイム) で uvicorn を spawn する。フロントの「Backend 起動」
+ * ボタンがこのエンドポイントを叩く。
+ *
+ *  GET  /api/backend  -> { running: boolean }
+ *  POST /api/backend  -> uvicorn を起動して起動完了まで待つ
+ */
+import { NextResponse } from "next/server";
+import { spawn } from "child_process";
+import path from "path";
+import fs from "fs";
+
+export const runtime = "nodejs";
+
+// localhost は環境によって IPv6(::1) に解決され、127.0.0.1 で待ち受ける
+// uvicorn に届かないことがあるため 127.0.0.1 を明示する。
+const HEALTH_URL = "http://127.0.0.1:8000/api/health";
+
+function backendDir(): string {
+  // frontend の一つ上が sprite-forge ルート、その下の backend
+  return process.env.BACKEND_DIR ?? path.resolve(process.cwd(), "..", "backend");
+}
+
+async function isRunning(timeoutMs = 1500): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const res = await fetch(HEALTH_URL, { signal: ctrl.signal, cache: "no-store" });
+    clearTimeout(t);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function GET() {
+  return NextResponse.json({ running: await isRunning() });
+}
+
+export async function POST() {
+  if (await isRunning()) {
+    return NextResponse.json({ running: true, started: false, message: "already running" });
+  }
+
+  const dir = backendDir();
+  const uvicorn = path.join(
+    dir,
+    ".venv",
+    "Scripts",
+    process.platform === "win32" ? "uvicorn.exe" : "uvicorn",
+  );
+  if (!fs.existsSync(uvicorn)) {
+    return NextResponse.json(
+      { running: false, started: false, error: `uvicorn not found: ${uvicorn}. setup.ps1 を実行してください。` },
+      { status: 500 },
+    );
+  }
+
+  try {
+    const child = spawn(
+      uvicorn,
+      ["app.main:app", "--port", "8000", "--reload", "--reload-dir", "app"],
+      { cwd: dir, detached: true, stdio: "ignore", windowsHide: true },
+    );
+    child.unref();
+  } catch (e) {
+    return NextResponse.json({ running: false, started: false, error: String(e) }, { status: 500 });
+  }
+
+  // 起動完了 (ヘルスチェックが通る) まで最大 ~25 秒待つ
+  for (let i = 0; i < 25; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    if (await isRunning()) {
+      return NextResponse.json({ running: true, started: true });
+    }
+  }
+  return NextResponse.json(
+    { running: false, started: true, message: "起動しましたが、まだ応答していません。数秒後に再確認してください。" },
+    { status: 202 },
+  );
+}

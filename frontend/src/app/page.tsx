@@ -6,6 +6,7 @@ import Viewer3D       from "@/components/Viewer3D";
 import LogPanel       from "@/components/LogPanel";
 import HistoryPane    from "@/components/HistoryPane";
 import GpuBar         from "@/components/GpuBar";
+import BackendStatus  from "@/components/BackendStatus";
 import { startPipeline, getJob, listHistory, type Job } from "@/lib/api";
 
 const PIPELINE_NODES = [
@@ -109,9 +110,12 @@ export default function Home() {
           })}
         </div>
 
-        <button className="ml-auto text-[9px] font-bold uppercase tracking-wider text-neutral-500 border border-neutral-700 bg-neutral-800 px-2.5 py-1 rounded hover:text-white transition-colors">
-          ⚙ Config
-        </button>
+        <div className="ml-auto flex items-center gap-3">
+          <BackendStatus />
+          <button className="text-[9px] font-bold uppercase tracking-wider text-neutral-500 border border-neutral-700 bg-neutral-800 px-2.5 py-1 rounded hover:text-white transition-colors">
+            ⚙ Config
+          </button>
+        </div>
       </header>
 
       {/* ── BODY ── */}
