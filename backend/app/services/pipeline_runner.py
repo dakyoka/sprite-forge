@@ -10,8 +10,14 @@ from pathlib import Path
 
 from app.models.job import Job, JobStatus, StepStatus
 from app.services import upscale, rembg_service, trellis_service as trellis, blender_post, godot_export
+from app.core import queue_manager
 
 logger = logging.getLogger(__name__)
+
+
+class JobCancelled(Exception):
+    """ジョブがユーザーによってキャンセルされたことを示す。"""
+    pass
 
 STEPS = [
     ("upload",  None),
@@ -34,18 +40,34 @@ async def run_pipeline(job: Job, input_path: Path, store: dict):
     current_path = input_path
 
     for step_id, fn in STEPS[1:]:
+        # ステップ開始前にキャンセル要求をチェックする
+        if queue_manager.is_cancel_requested(job.job_id):
+            _abort_cancelled(job, store, step_id)
+            return
+
         _mark(job, step_id, StepStatus.running)
         _sync(job, store)
         try:
             result_path = await fn(current_path, job)
             current_path = result_path
             _mark(job, step_id, StepStatus.done)
+        except JobCancelled:
+            _abort_cancelled(job, store, step_id)
+            return
         except Exception as e:
+            # サブプロセス停止がキャンセル起因なら failed ではなく cancelled 扱い
+            if queue_manager.is_cancel_requested(job.job_id):
+                _abort_cancelled(job, store, step_id)
+                return
             logger.exception(f"[{job.job_id}] step={step_id} failed")
             _mark(job, step_id, StepStatus.error, str(e))
             job.status = JobStatus.failed
             job.error_msg = f"{step_id}: {e}"
             _sync(job, store)
+            return
+
+        if queue_manager.is_cancel_requested(job.job_id):
+            _abort_cancelled(job, store, step_id)
             return
 
         job.progress = _calc_progress(step_id)
@@ -64,6 +86,15 @@ async def run_pipeline(job: Job, input_path: Path, store: dict):
 
     _sync(job, store)
     logger.info(f"[{job.job_id}] pipeline completed → {current_path}")
+
+
+def _abort_cancelled(job: Job, store: dict, step_id: str):
+    """キャンセルされたジョブを cancelled 状態にして後始末する。"""
+    logger.info(f"[{job.job_id}] cancelled at step={step_id}")
+    _mark(job, step_id, StepStatus.pending, "キャンセルされました")
+    job.status = JobStatus.cancelled
+    job.error_msg = "キャンセルされました"
+    _sync(job, store)
 
 
 def _glb_stats(path: Path) -> tuple[int | None, int | None, int | None]:

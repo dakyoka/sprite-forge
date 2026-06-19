@@ -29,6 +29,7 @@ class JobStatus(str, Enum):
     running    = "running"
     completed  = "completed"
     failed     = "failed"
+    cancelled  = "cancelled"
 
 
 class Job(BaseModel):
@@ -48,6 +49,8 @@ class Job(BaseModel):
     glb_size:    int | None = None   # GLB ファイルサイズ(bytes)
     vertices:    int | None = None   # 頂点数
     faces:       int | None = None   # 面(ポリゴン)数
+    input_image: str | None = None   # 保存した入力画像のパス(/api/input 配信用)
+    logs:        list[str] = Field(default_factory=list)  # TRELLIS のライブログ行
     created_at:  datetime = Field(default_factory=datetime.utcnow)
     updated_at:  datetime = Field(default_factory=datetime.utcnow)
     error_msg:   str | None = None

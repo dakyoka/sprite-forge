@@ -9,12 +9,23 @@ import asyncio
 import os
 import subprocess
 import sys
+import time
+from collections import deque
 from pathlib import Path
 
 from app.core.config import settings
+from app.core import job_store, queue_manager
 from app.models.job import Job
 
 _TRELLIS_SCRIPT = Path(__file__).parent / "trellis_infer.py"
+
+_MAX_LOG_LINES = 300       # job.logs に保持する最大行数
+_SAVE_INTERVAL_SEC = 1.5   # ログ反映の永続化スロットル間隔
+
+
+class TrellisCancelled(Exception):
+    """キャンセル要求によりサブプロセスを終了したことを示す。"""
+    pass
 
 
 async def run(input_path: Path, job: Job) -> Path:
@@ -49,14 +60,92 @@ async def run(input_path: Path, job: Job) -> Path:
     elif settings.trellis_fp16 is False:
         cmd += ["--no-fp16"]
 
-    # subprocess.run はブロッキング。async ループを塞がないよう別スレッドで実行する
-    # (これをしないと推論中フロントのポーリングが全て止まり、進捗が固まって見える)。
-    proc = await asyncio.to_thread(
-        subprocess.run,
-        cmd, capture_output=True, text=True,
-        timeout=settings.trellis_timeout_sec, env=env,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"Trellis failed:\n{proc.stderr[-800:]}")
+    # サブプロセスをライブストリーミングで実行する(別スレッドで読み取る)。
+    # async ループを塞がないよう asyncio.to_thread で回す。
+    try:
+        await asyncio.to_thread(_run_streaming, cmd, env, job)
+    except TrellisCancelled:
+        # キャンセル起因。run_pipeline 側で cancelled 扱いになるよう再送出する。
+        from app.services.pipeline_runner import JobCancelled
+        raise JobCancelled()
 
     return out_glb
+
+
+def _run_streaming(cmd: list[str], env: dict, job: Job) -> None:
+    """
+    Popen で起動し、stdout/stderr(マージ)を 1 行ずつ読みながら job.logs に追記する。
+    - ログは末尾 _MAX_LOG_LINES 行に制限する。
+    - 永続化(job_store.save)は _SAVE_INTERVAL_SEC ごとにスロットルする。
+    - settings.trellis_timeout_sec を独自に監視し、超過時は terminate する。
+    - キャンセル要求が出ていたら TrellisCancelled を送出する。
+    - 非ゼロ終了(非キャンセル)なら直近ログ tail を含む RuntimeError を送出する。
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        env=env,
+    )
+    queue_manager.register_proc(proc)
+
+    start = time.monotonic()
+    last_save = 0.0
+    tail = deque(maxlen=50)  # 失敗時のエラーメッセージ用
+
+    try:
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.rstrip("\n")
+            if line:
+                tail.append(line)
+                job.logs.append(line)
+                if len(job.logs) > _MAX_LOG_LINES:
+                    del job.logs[: len(job.logs) - _MAX_LOG_LINES]
+
+            # キャンセル要求のチェック
+            if queue_manager.is_cancel_requested(job.job_id):
+                _terminate(proc)
+                raise TrellisCancelled()
+
+            # タイムアウト監視
+            if time.monotonic() - start > settings.trellis_timeout_sec:
+                _terminate(proc)
+                raise RuntimeError(
+                    f"Trellis timeout ({settings.trellis_timeout_sec}s)\n"
+                    + "\n".join(tail)
+                )
+
+            # 永続化スロットル
+            now = time.monotonic()
+            if now - last_save >= _SAVE_INTERVAL_SEC:
+                last_save = now
+                job_store.save()
+
+        returncode = proc.wait()
+    finally:
+        # 最後のログを確実に永続化する
+        job_store.save()
+
+    # ループ終了後、キャンセルされていた場合
+    if queue_manager.is_cancel_requested(job.job_id):
+        raise TrellisCancelled()
+
+    if returncode != 0:
+        raise RuntimeError("Trellis failed:\n" + "\n".join(tail))
+
+
+def _terminate(proc: subprocess.Popen) -> None:
+    try:
+        proc.terminate()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
