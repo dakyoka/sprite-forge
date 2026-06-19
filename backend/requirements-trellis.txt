@@ -1,0 +1,20 @@
+# TRELLIS runtime dependencies (torch 2.6.0+cu124 baseline).
+# Installed by setup.ps1 AFTER torch and BEFORE the prebuilt CUDA wheels
+# (nvdiffrast / diff_gaussian_rasterization, see setup.ps1).
+# Versions are pinned for reproducibility on a fresh machine.
+imageio-ffmpeg==0.6.0
+easydict==1.13
+ninja==1.13.0
+trimesh==4.12.2
+open3d==0.19.0
+xatlas==0.0.11
+pyvista==0.48.4
+pymeshfix==0.18.1
+igraph==1.0.0
+transformers==5.12.1
+spconv-cu120==2.3.6
+onnxruntime-gpu==1.27.0
+xformers==0.0.29.post3
+opencv-python==4.13.0.92
+# utils3d pinned to the commit TRELLIS expects (provides utils3d.torch.* used in baking)
+utils3d @ git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8

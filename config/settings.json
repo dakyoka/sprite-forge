@@ -2,8 +2,38 @@
   "godot_export_path": "C:/godot-project/assets/prototype/buildings",
   "trellis_path": "H:/TRELLIS",
   "trellis_model": "microsoft/TRELLIS-image-large",
-  "trellis_steps": 6,
-  "trellis_fp16": true,
+
+  "gpu_preset": "auto",
+  "gpu_presets": {
+    "low": {
+      "max_vram_gb": 10,
+      "trellis_steps": 6,
+      "texture_size": 512,
+      "bake_mode": "fast",
+      "fp16": true
+    },
+    "standard": {
+      "max_vram_gb": 16,
+      "trellis_steps": 12,
+      "texture_size": 1024,
+      "bake_mode": "fast",
+      "fp16": true
+    },
+    "high": {
+      "max_vram_gb": null,
+      "trellis_steps": 25,
+      "texture_size": 2048,
+      "bake_mode": "opt",
+      "fp16": false
+    }
+  },
+
+  "trellis_steps": null,
+  "texture_size": null,
+  "bake_mode": null,
+  "trellis_fp16": null,
+  "trellis_timeout_sec": 3600,
+
   "blender_exe": "",
   "upscale_target_width": 2048,
   "upscale_target_height": 2048,

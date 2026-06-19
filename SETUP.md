@@ -1,146 +1,122 @@
-# SpriteForge セットアップ手順
+# SpriteForge セットアップ手順（人間向け）
 
-> 新卒エンジニアでも迷わないよう、コマンドを一行ずつ書いています。
+> AI エージェントに任せる場合は [AGENTS.md](./AGENTS.md) を渡すだけで OK。
+> 以下は手動で進めたい人向けです。
 
 ## 必要なもの（事前インストール）
 
 | ソフト | バージョン | 入手先 |
 |---|---|---|
-| Python | 3.11 以上 | https://www.python.org |
+| Python | 3.10 以上 | https://www.python.org |
 | Node.js | 20 LTS 以上 | https://nodejs.org |
 | Git | 最新 | https://git-scm.com |
-| NVIDIA ドライバ | 535 以上 | NVIDIA 公式 |
-| CUDA Toolkit | 12.x | https://developer.nvidia.com/cuda-downloads |
-| Blender | 4.0 以上 | https://www.blender.org |
+| NVIDIA ドライバ | 最新（CUDA 12.4 対応） | NVIDIA 公式 |
+| Blender | 4.x（後処理ステップで使用、任意） | https://www.blender.org |
+
+> GPU は **VRAM 12GB 以上を推奨**。8GB（例: RTX 3070）でも軽量プリセットで動作します。
 
 ---
 
-## STEP 1 — リポジトリのクローン
+## STEP 1 — クローン & 自動セットアップ
 
-```bash
+```powershell
 git clone https://github.com/dakyoka/sprite-forge.git
 cd sprite-forge
+./setup.ps1
 ```
+
+`setup.ps1` が以下を**冪等に**全自動実行します:
+
+- `.env` 作成、`backend/.venv` 作成、軽量パッケージ
+- **torch 2.6.0+cu124**（CPU 版が入っていたら入れ替え）
+- TRELLIS ランタイム依存（`backend/requirements-trellis.txt`）
+- prebuilt wheel: **nvdiffrast 0.4.0+...pt2.6.0cu124** / **diff_gaussian_rasterization 0.0.1+...pt2.6.0cu124**
+- TRELLIS 本体の clone（`config/settings.json` の `trellis_path`、既定 `H:/TRELLIS`）+ submodule 更新
+- TRELLIS パッチ適用（`scripts/apply_trellis_patches.py`）
+- `frontend` の `npm install`
+
+オプション:
+- `./setup.ps1 -SkipTrellis` … 重い TRELLIS 段階を飛ばす
+- `./setup.ps1 -SkipFrontend` … npm install を飛ばす
 
 ---
 
-## STEP 2 — 環境変数の設定
+## STEP 2 — Godot 書き出し先の設定
 
-```bash
-copy .env.example .env
-```
-
-`.env` をテキストエディタで開き、以下の行を自分の環境に合わせて変更してください：
-
-```
-SF_GODOT_EXPORT_PATH=C:/Users/あなたのユーザー名/godot-project/assets/prototype/buildings
-```
-
-> Godot プロジェクトの `res://assets/prototype/buildings/` に対応するフォルダのフルパスを書いてください。
+`.env` の `SF_GODOT_EXPORT_PATH` と `config/settings.json` の `godot_export_path`
+を、Godot プロジェクトの `res://assets/.../buildings/` に対応するフルパスに揃えます（SSOT）。
 
 ---
 
-## STEP 3 — TRELLIS のインストール
+## STEP 3 — 起動
 
-TRELLIS は Microsoft が公開しているローカル 3D 生成モデルです。
-別途クローン・インストールが必要です。
+```powershell
+# Terminal 1
+cd backend
+.\.venv\Scripts\uvicorn app.main:app --reload --reload-dir app --port 8000
 
-```bash
-# sprite-forge フォルダとは別の場所にクローンしてOK
-git clone https://github.com/microsoft/TRELLIS.git
-cd TRELLIS
-
-# Python 仮想環境を作成（推奨）
-python -m venv .venv
-.venv\Scripts\activate
-
-# 依存関係のインストール（時間がかかります：10〜30分）
-pip install -e ".[train]"
-
-# モデルの事前ダウンロード（約 8GB）
-python -c "from trellis.pipelines import TrellisImageTo3DPipeline; TrellisImageTo3DPipeline.from_pretrained('microsoft/TRELLIS-image-large')"
-```
-
-> ⚠ RTX 3070 8GB の場合はメモリ不足でエラーになる可能性があります。
-> RTX 3060 **12GB** 以上を推奨します。
-
----
-
-## STEP 4 — バックエンドのセットアップ
-
-```bash
-cd sprite-forge/backend
-
-# Python 仮想環境を作成
-python -m venv .venv
-.venv\Scripts\activate
-
-# パッケージのインストール
-pip install -r requirements.txt
-
-# サーバー起動
-uvicorn app.main:app --reload --reload-dir app --port 8000
-```
-
-ターミナルに `Application startup complete.` と表示されれば OK です。
-
----
-
-## STEP 5 — フロントエンドのセットアップ
-
-新しいターミナルを開いて：
-
-```bash
-cd sprite-forge/frontend
-
-npm install
+# Terminal 2
+cd frontend
 npm run dev
 ```
 
-`http://localhost:3000` と表示されれば OK です。
+`http://localhost:3000` を開いて画像をドロップすると、パイプラインが進みます。
 
 ---
 
-## STEP 6 — 動作確認
+## GPU プリセット（VRAM 自動判定）
 
-1. ブラウザで http://localhost:3000 を開く
-2. 建物などの画像（PNG 推奨）をドロップ
-3. パイプラインが自動で進み始めることを確認
-4. 完了後、`config/settings.json` の `godot_export_path` フォルダに `.glb` が保存されていることを確認
+推論パラメータは VRAM から自動選択されます（正本: `config/settings.json` の `gpu_presets`）。
+
+| プリセット | VRAM 帯 | steps | texture_size | bake mode | fp16 |
+|---|---|---|---|---|---|
+| low | 〜10GB | 6 | 512 | fast | true |
+| standard | 10〜16GB | 12 | 1024 | fast | true |
+| high | 16GB〜 | 25 | 2048 | opt | false |
+
+手動で固定したい場合は `config/settings.json` を編集:
+
+```json
+{
+  "gpu_preset": "standard",        // "auto" | "low" | "standard" | "high"
+  "trellis_steps": null,           // 数値を入れるとプリセットより優先
+  "texture_size": null,
+  "bake_mode": null,               // "fast" | "opt"
+  "trellis_fp16": null
+}
+```
 
 ---
 
 ## スマホから操作する（Tailscale）
 
-1. [Tailscale](https://tailscale.com) をインストールしてアカウントを作成
-2. PC とスマホの両方に Tailscale を入れてサインイン
-3. Tailscale 管理画面で PC の IP アドレスを確認（例: `100.x.x.x`）
-4. スマホのブラウザで `http://100.x.x.x:3000` を開く
+1. PC とスマホに [Tailscale](https://tailscale.com) を入れてサインイン
+2. PC の Tailscale IP（例 `100.x.x.x`）を確認
+3. スマホで `http://100.x.x.x:3000` を開く
 
 ---
 
-## よくあるエラー
+## トラブルシュート
 
-| エラー | 原因 | 対処 |
+| 症状 | 原因 | 対処 |
 |---|---|---|
-| `CUDA out of memory` | VRAM 不足 | `settings.json` の `trellis_steps` を 8 に下げる |
-| `Blender が見つかりません` | Blender が PATH にない | Blender を再インストールし「PATH に追加」にチェック |
-| `rembg` インポートエラー | onnxruntime 未インストール | `pip install onnxruntime-gpu` |
-| `Port 8000 already in use` | 別プロセスが使用中 | `uvicorn ... --port 8001` で起動し `.env` の port も変更 |
+| `CUDA out of memory` / 極端に遅い（system RAM へスピル） | VRAM 不足。特に `bake_mode=opt` | `gpu_preset` を `low` に。`bake_mode` を `fast`、`texture_size` を 512/256 に下げる |
+| `diff_gaussian_rasterization` 系の import/実行エラー | wheel の torch 版が不一致 | torch を 2.6.0+cu124 に揃え、`...pt2.6.0cu124` の wheel を `--force-reinstall --no-deps` で入れ直す |
+| `No module named 'triton'` | triton 未導入 | **無害**。無視可 |
+| onnxruntime `cublasLt` 警告 | onnxruntime-gpu の依存 DLL | **無害**。無視可 |
+| `kaolin` 関連の import エラー | kaolin 未導入 | パッチ済みなら no-op フォールバックで動作。`scripts/apply_trellis_patches.py` を再実行 |
+| TRELLIS の clone 先が違う | `trellis_path` 不一致 | `config/settings.json` の `trellis_path` を実際の場所に合わせる |
+| `Port 8000 already in use` | 別プロセス使用中 | `--port 8001` で起動し `.env` も変更 |
+
+### prebuilt wheel について
+
+`nvdiffrast` と `diff_gaussian_rasterization` は torch のバージョン・CUDA に
+厳密一致した wheel が必要です（`...pt2.6.0cu124`）。torch を変えたら必ず
+対応する wheel を入れ直してください。提供元: https://miropsota.github.io/torch_packages_builder
 
 ---
 
 ## 設定のカスタマイズ
 
-すべての設定は `config/settings.json` で管理しています：
-
-```json
-{
-  "godot_export_path": "Godot フォルダのパス",
-  "trellis_steps": 12,
-  "trellis_fp16": true,
-  "upscale_factor": 4
-}
-```
-
-> ⚠ このファイル以外の場所に設定値をハードコードしないでください（SSOT ポリシー）。
+すべての設定は `config/settings.json` が正本（SSOT）です。
+このファイル以外に設定値をハードコードしないでください。

@@ -24,53 +24,54 @@
 | 後処理 | Blender 4.x (CLI) |
 | モバイル | Tailscale でローカル LAN に接続 |
 
-## 動作確認済み環境
+## 動作環境（GPU 適応）
 
-- **開発機**: Windows 11 · NVIDIA RTX 3060 12GB (VRAM)
-- **最低要件**: RTX 3060 12GB 以上（TRELLIS fp16 モード使用）
-- RTX 3070 8GB はメモリ不足でエラーになる可能性があります
+VRAM を自動検出して推論プリセットを切り替えます（正本: `config/settings.json` の `gpu_presets`）。
+
+| プリセット | VRAM 帯 | steps | texture_size | bake mode | fp16 |
+|---|---|---|---|---|---|
+| low | 〜10GB | 6 | 512 | fast | true |
+| standard | 10〜16GB | 12 | 1024 | fast | true |
+| high | 16GB〜 | 25 | 2048 | opt | false |
+
+- **推奨**: VRAM 12GB 以上。**8GB（RTX 3070 等）でも low プリセットで動作**します。
+- torch 2.6.0+cu124  baseline。詳細・手動上書きは [SETUP.md](./SETUP.md) / [AGENTS.md](./AGENTS.md) 参照。
 
 ## クイックスタート
 
-詳細は [SETUP.md](./SETUP.md) を参照してください。
+AI エージェントに任せるなら [AGENTS.md](./AGENTS.md) を渡すだけ。手動は [SETUP.md](./SETUP.md) を参照。
 
-```bash
-# 1. リポジトリをクローン
+```powershell
 git clone https://github.com/dakyoka/sprite-forge.git
 cd sprite-forge
-
-# 2. 環境変数を設定
-cp .env.example .env
-# .env の SF_GODOT_EXPORT_PATH を自分の Godot プロジェクトパスに変更
-
-# 3. バックエンド起動
-cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload --reload-dir app --port 8000
-
-# 4. フロントエンド起動 (別ターミナル)
-cd frontend
-npm install
-npm run dev
+./setup.ps1          # Python/Node/torch/TRELLIS clone+patch/フロント を冪等に自動セットアップ
 ```
 
+セットアップ後、`.env` と `config/settings.json` の Godot 書き出し先を設定し、
+バックエンド（uvicorn）とフロントエンド（npm run dev）を起動。
 ブラウザで http://localhost:3000 を開き、画像をドロップするだけです。
 
 ## ディレクトリ構成
 
 ```
 sprite-forge/
+├── setup.ps1          # 冪等セットアップ (UTF-8 BOM)
+├── AGENTS.md          # AI エージェント向け手順
+├── SETUP.md           # 人間向け手順 + トラブルシュート
+├── scripts/
+│   └── apply_trellis_patches.py  # TRELLIS 本体への冪等パッチ
 ├── frontend/          # Next.js フロントエンド
 ├── backend/           # FastAPI バックエンド
+│   ├── requirements.txt          # 軽量依存
+│   ├── requirements-trellis.txt  # TRELLIS ランタイム依存
 │   └── app/
-│       ├── core/      # 設定 (SSOT)
+│       ├── core/      # 設定 (SSOT) + gpu_profile (VRAM 検出)
 │       ├── models/    # データ型定義 (SSOT)
 │       ├── routes/    # API エンドポイント
 │       └── services/  # パイプライン各ステップ
 ├── config/
-│   └── settings.json  # 全設定の正本 (SSOT)
-├── .env.example       # 環境変数テンプレート
-└── SETUP.md           # セットアップ詳細手順
+│   └── settings.json  # 全設定の正本 (SSOT, GPU プリセット含む)
+└── .env.example       # 環境変数テンプレート
 ```
 
 ## SSOT ポリシー
