@@ -1,8 +1,10 @@
 {
   "godot_export_path": "C:/godot-project/assets/prototype/buildings",
+  "trellis_path": "H:/TRELLIS",
   "trellis_model": "microsoft/TRELLIS-image-large",
   "trellis_steps": 12,
   "trellis_fp16": true,
+  "blender_exe": "",
   "upscale_target_width": 2048,
   "upscale_target_height": 2048,
   "rembg_enabled": false,

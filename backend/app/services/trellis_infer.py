@@ -1,11 +1,24 @@
 """
-TRELLIS 推論スクリプト（サブプロセスとして呼び出される）
-TRELLIS のインストールが完了していることが前提。
-SETUP.md の手順に従い trellis/ をクローン・セットアップすること。
+TRELLIS inference script (called as subprocess).
+Adds TRELLIS_PATH to sys.path so 'import trellis' works without pip install.
 """
 import argparse
+import os
 import sys
 from pathlib import Path
+
+
+def _setup_trellis_path():
+    trellis_path = os.environ.get("TRELLIS_PATH", r"H:\TRELLIS")
+    p = str(Path(trellis_path).resolve())
+    if p not in sys.path:
+        sys.path.insert(0, p)
+    os.environ.setdefault("ATTN_BACKEND", "xformers")
+    os.environ.setdefault("SPARSE_BACKEND", "spconv")
+
+
+_setup_trellis_path()
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -19,13 +32,15 @@ def main():
     try:
         import torch
         from trellis.pipelines import TrellisImageTo3DPipeline
-        from trellis.utils import render_utils, postprocessing_utils
-    except ImportError:
-        print("ERROR: TRELLIS がインストールされていません。SETUP.md を参照してください。", file=sys.stderr)
+        from trellis.utils import postprocessing_utils
+    except ImportError as exc:
+        print(f"ERROR: TRELLIS import failed: {exc}", file=sys.stderr)
+        print("SETUP.md を参照して H:/TRELLIS をセットアップしてください。", file=sys.stderr)
         sys.exit(1)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype  = torch.float16 if (args.fp16 and device == "cuda") else torch.float32
+    if device == "cpu":
+        print("WARNING: CUDA not available, running on CPU (very slow)", file=sys.stderr)
 
     pipeline = TrellisImageTo3DPipeline.from_pretrained(args.model)
     pipeline = pipeline.to(device)

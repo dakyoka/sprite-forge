@@ -60,7 +60,8 @@ def _mark(job: Job, step_id: str, status: StepStatus, detail: str = ""):
     for s in job.steps:
         if s.step_id == step_id:
             s.status = status
-            s.detail = detail
+            if detail:
+                s.detail = detail
             if status == StepStatus.running:
                 s.started_at = datetime.utcnow()
             elif status in (StepStatus.done, StepStatus.error):

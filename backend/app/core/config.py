@@ -11,9 +11,11 @@ _CONFIG_PATH = Path(__file__).parents[3] / "config" / "settings.json"
 
 class Settings(BaseModel):
     godot_export_path: str = "C:/godot-project/assets/prototype/buildings"
+    trellis_path: str = "H:/TRELLIS"
     trellis_model: str = "microsoft/TRELLIS-image-large"
     trellis_steps: int = 12
     trellis_fp16: bool = True
+    blender_exe: str = ""
     upscale_target_width: int = 2048
     upscale_target_height: int = 2048
     rembg_enabled: bool = False  # 背景除去済み画像を使う場合は False のまま
