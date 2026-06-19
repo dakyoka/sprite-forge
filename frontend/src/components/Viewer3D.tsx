@@ -60,15 +60,15 @@ export default function Viewer3D({ job }: Props) {
         </div>
       )}
 
-      {/* processing state */}
-      {job?.status === "running" && (
+      {/* processing state (queued or running) */}
+      {(job?.status === "running" || job?.status === "queued") && (
         <div className="relative z-10 flex flex-col items-center gap-3">
           <div className="w-12 h-12 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
           <p className="text-[10px] text-blue-400 uppercase tracking-wider">処理中…</p>
         </div>
       )}
 
-      {/* completed — show 3D placeholder */}
+      {/* completed or failed — show 3D placeholder */}
       {job && job.status !== "running" && job.status !== "queued" && (
         <div className="relative z-10 flex flex-col items-center gap-2">
           <div
