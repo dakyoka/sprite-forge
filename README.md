@@ -5,11 +5,9 @@
 
 ```
 画像ドロップ
-  → アップスケール (Real-ESRGAN 4×)
-    → 背景除去 (rembg)
-      → 3D 生成 (Microsoft TRELLIS)
-        → 後処理 (Blender: 原点・マテリアル正規化)
-          → Godot フォルダへ自動書き出し (GLB)
+  → 3D 生成 (Microsoft TRELLIS)   ※背景除去・518px 縮小は TRELLIS が内部実行
+    → 後処理 (Blender: 原点・マテリアル正規化)
+      → Godot フォルダへ自動書き出し (GLB)
 ```
 
 ## スタック
@@ -18,9 +16,7 @@
 |---|---|
 | フロントエンド | Next.js 14 · TypeScript · Tailwind CSS |
 | バックエンド | Python FastAPI · uvicorn |
-| 3D 生成 | Microsoft TRELLIS (ローカル GPU) |
-| アップスケール | Real-ESRGAN |
-| 背景除去 | rembg |
+| 3D 生成 | Microsoft TRELLIS (ローカル GPU・背景除去/縮小を内蔵) |
 | 後処理 | Blender 4.x (CLI) |
 | モバイル | Tailscale でローカル LAN に接続 |
 
@@ -47,9 +43,13 @@ cd sprite-forge
 ./setup.ps1          # Python/Node/torch/TRELLIS clone+patch/フロント を冪等に自動セットアップ
 ```
 
-セットアップ後、`.env` と `config/settings.json` の Godot 書き出し先を設定し、
+セットアップ後、`config/settings.json` の Godot 書き出し先（`godot_export_path`）を設定し、
 バックエンド（uvicorn）とフロントエンド（npm run dev）を起動。
 ブラウザで http://localhost:3000 を開き、画像をドロップするだけです。
+
+> パスは setup.ps1 のパラメータでも設定できます:
+> `./setup.ps1 -GodotExportPath "C:\...\buildings" -TrellisPath "H:\TRELLIS"`
+> 詳細は [SETUP.md](./SETUP.md) / [AGENTS.md](./AGENTS.md) 参照。
 
 ## ディレクトリ構成
 

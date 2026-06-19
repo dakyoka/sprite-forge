@@ -38,13 +38,31 @@ cd sprite-forge
 オプション:
 - `./setup.ps1 -SkipTrellis` … 重い TRELLIS 段階を飛ばす
 - `./setup.ps1 -SkipFrontend` … npm install を飛ばす
+- `./setup.ps1 -NoPrompt` … 対話プロンプトを出さない（CI / AI 用）
+
+マシン固有パスはパラメータで一括指定できます（`config/settings.json` に書き込まれます。
+バックスラッシュは自動で `/` に正規化されます）:
+
+```powershell
+./setup.ps1 -GodotExportPath "C:\godot-project\assets\prototype\buildings" `
+            -TrellisPath "H:\TRELLIS" `
+            -BlenderExe "C:\Program Files\Blender Foundation\Blender 4.2\blender.exe"
+```
+
+パラメータ無しなら、Godot / TRELLIS のパスを対話で尋ねます。
 
 ---
 
-## STEP 2 — Godot 書き出し先の設定
+## STEP 2 — マシン固有パスの設定（正本: config/settings.json）
 
-`.env` の `SF_GODOT_EXPORT_PATH` と `config/settings.json` の `godot_export_path`
-を、Godot プロジェクトの `res://assets/.../buildings/` に対応するフルパスに揃えます（SSOT）。
+バックエンドは下記を `config/settings.json` からのみ読み込みます（`.env` の
+`SF_GODOT_EXPORT_PATH` は使われません）。STEP 1 のパラメータで設定済みなら不要です。
+
+| 設定 | キー | 必須 | 内容 |
+|---|---|---|---|
+| Godot 書き出し先 | `godot_export_path` | はい | Godot プロジェクトの `res://assets/.../buildings/` の絶対パス |
+| TRELLIS の場所 | `trellis_path` | はい | TRELLIS を clone したフォルダ（既定 `H:/TRELLIS`） |
+| Blender 実行ファイル | `blender_exe` | いいえ | 空＝自動検出。見つからなければ後処理ステップはスキップ |
 
 ---
 
@@ -106,7 +124,9 @@ npm run dev
 | onnxruntime `cublasLt` 警告 | onnxruntime-gpu の依存 DLL | **無害**。無視可 |
 | `kaolin` 関連の import エラー | kaolin 未導入 | パッチ済みなら no-op フォールバックで動作。`scripts/apply_trellis_patches.py` を再実行 |
 | TRELLIS の clone 先が違う | `trellis_path` 不一致 | `config/settings.json` の `trellis_path` を実際の場所に合わせる |
-| `Port 8000 already in use` | 別プロセス使用中 | `--port 8001` で起動し `.env` も変更 |
+| `npm install` が `ERESOLVE` で失敗 | `@google/model-viewer` が古い `three` を peer 指定 | `npm install --legacy-peer-deps` を使う（`setup.ps1` は自動でこれを使用） |
+| Godot にファイルが出力されない | `godot_export_path` 未設定/誤り | `config/settings.json` の `godot_export_path` を正しい絶対パスに（`.env` ではなく settings.json） |
+| `Port 8000 already in use` | 別プロセス使用中 | `--port 8001` で起動 |
 
 ### prebuilt wheel について
 

@@ -46,12 +46,34 @@ cd <このリポジトリのフォルダ>
 
 > 重い TRELLIS 段階を飛ばしたい場合: `./setup.ps1 -SkipTrellis`
 > フロントを飛ばす場合: `./setup.ps1 -SkipFrontend`
+> 対話プロンプトを出さない場合（AI/CI 用）: `-NoPrompt`
 
-### 2. .env / settings.json のパス設定
+#### マシン固有パスをパラメータで渡す（推奨・非対話）
 
-`.env` を開き `SF_GODOT_EXPORT_PATH=` に Godot プロジェクトの書き出し先フォルダを設定。
-同じ値を `config/settings.json` の `godot_export_path` にも入れてください（SSOT）。
-ユーザーにパスを質問してから設定すること。
+`setup.ps1` は以下のパラメータを受け取り、**`config/settings.json` に書き込みます**（SSOT）。
+バックスラッシュは自動で `/` に正規化されるためエスケープ不要です:
+
+```powershell
+./setup.ps1 -NoPrompt `
+  -GodotExportPath "C:\path\to\godot-project\assets\prototype\buildings" `
+  -TrellisPath     "H:\TRELLIS" `
+  -BlenderExe      "C:\Program Files\Blender Foundation\Blender 4.2\blender.exe"
+```
+
+パラメータ無しで実行すると（`-NoPrompt` 無し）、Godot / TRELLIS のパスを対話で尋ねます。
+**ユーザーに必ずパスを確認してから設定してください。**
+
+### 2. パス設定（正本は config/settings.json）
+
+| 設定 | settings.json のキー | 必須 | 既定 |
+|---|---|---|---|
+| Godot 書き出し先 | `godot_export_path` | はい（最終ステップで使用） | `C:/godot-project/...`（例） |
+| TRELLIS の場所 | `trellis_path` | はい | `H:/TRELLIS` |
+| Blender 実行ファイル | `blender_exe` | いいえ（空＝自動検出/スキップ） | `""` |
+
+> バックエンドはこれらを `config/settings.json` からのみ読み込みます（`.env` の
+> `SF_GODOT_EXPORT_PATH` は **使われません**）。上記の `setup.ps1` パラメータ、
+> または `config/settings.json` を直接編集して設定してください。
 
 ### 3. 起動
 

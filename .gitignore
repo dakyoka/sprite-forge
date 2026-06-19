@@ -27,6 +27,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# ── ログ（バックエンド実行ログなど） ──────────────────
+*.log
+
 # ── SpriteForge 生成物 ────────────────────────────────
 backend/output/
 *.glb

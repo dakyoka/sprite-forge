@@ -1,8 +1,12 @@
 ﻿# SpriteForge Setup Script (idempotent)
 # Safe to re-run. ASCII-only on purpose to avoid PowerShell encoding issues.
 param(
-    [switch]$SkipTrellis,   # skip the heavy TRELLIS install/patch stage
-    [switch]$SkipFrontend   # skip npm install
+    [switch]$SkipTrellis,            # skip the heavy TRELLIS install/patch stage
+    [switch]$SkipFrontend,           # skip npm install
+    [string]$GodotExportPath = "",   # write this into config/settings.json -> godot_export_path
+    [string]$TrellisPath     = "",   # write this into config/settings.json -> trellis_path
+    [string]$BlenderExe      = "",   # write this into config/settings.json -> blender_exe (optional)
+    [switch]$NoPrompt                # never prompt interactively (for CI / AI agents)
 )
 $ErrorActionPreference = "Stop"
 
@@ -10,6 +14,26 @@ function Write-Step($n, $msg) { Write-Host "`n[$n] $msg" -ForegroundColor Cyan }
 function Write-OK($msg)   { Write-Host "  [OK]  $msg" -ForegroundColor Green }
 function Write-Warn($msg) { Write-Host "  [!!]  $msg" -ForegroundColor Yellow }
 function Write-Fail($msg) { Write-Host "  [NG]  $msg" -ForegroundColor Red; exit 1 }
+
+# Idempotently set a top-level "key": "value" string entry in a JSON file, preserving
+# formatting/comments. Backslashes are normalized to forward slashes (config.py accepts both)
+# so we never have to JSON-escape Windows paths. Returns $true if the file changed.
+function Set-JsonStringValue($path, $key, $value) {
+    $value = ($value -replace '\\', '/')
+    $raw = Get-Content $path -Raw
+    $pattern = '("' + [regex]::Escape($key) + '"\s*:\s*)"[^"]*"'
+    $new = [regex]::Replace($raw, $pattern, { param($m) $m.Groups[1].Value + '"' + $value + '"' }, 1)
+    if ($new -ne $raw) {
+        $enc = New-Object System.Text.UTF8Encoding($false)   # UTF-8, no BOM (settings.json convention)
+        [System.IO.File]::WriteAllText((Resolve-Path $path).Path, $new, $enc)
+        return $true
+    }
+    return $false
+}
+
+function Read-JsonStringValue($path, $key) {
+    try { return ((Get-Content $path -Raw | ConvertFrom-Json).$key) } catch { return "" }
+}
 
 $RepoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $RepoRoot
@@ -56,15 +80,52 @@ try {
 }
 
 # ---------------------------------------------------------------------------
-# STEP 4: .env
+# STEP 4: Machine-specific paths (config/settings.json is the SSOT)
 # ---------------------------------------------------------------------------
-Write-Step 4 "Creating .env"
+Write-Step 4 "Configuring machine-specific paths (config/settings.json)"
+$settingsPath = Join-Path $RepoRoot "config\settings.json"
+
+# .env is a convenience copy; the BACKEND reads config/settings.json only.
 if (-not (Test-Path ".env")) {
     Copy-Item ".env.example" ".env"
     Write-OK "Created .env from .env.example"
-    Write-Warn "Edit .env and set SF_GODOT_EXPORT_PATH to your Godot project path"
 } else {
     Write-OK ".env already exists (skipped)"
+}
+
+# Godot export folder (REQUIRED for the final export step on the friend's machine).
+if (-not $GodotExportPath -and -not $NoPrompt) {
+    $cur = Read-JsonStringValue $settingsPath "godot_export_path"
+    $ans = Read-Host "  Godot export folder (absolute path) [Enter keeps '$cur']"
+    if ($ans) { $GodotExportPath = $ans }
+}
+if ($GodotExportPath) {
+    if (Set-JsonStringValue $settingsPath "godot_export_path" $GodotExportPath) {
+        Write-OK "godot_export_path -> $($GodotExportPath -replace '\\','/')"
+    } else { Write-Warn "godot_export_path key not found in settings.json" }
+} else {
+    Write-Warn "godot_export_path left at default '$(Read-JsonStringValue $settingsPath 'godot_export_path')' (edit config/settings.json later)"
+}
+
+# TRELLIS checkout location (defaults to settings.json value, normally H:/TRELLIS).
+if (-not $TrellisPath -and -not $NoPrompt) {
+    $cur = Read-JsonStringValue $settingsPath "trellis_path"
+    $ans = Read-Host "  TRELLIS checkout folder [Enter keeps '$cur']"
+    if ($ans) { $TrellisPath = $ans }
+}
+if ($TrellisPath) {
+    if (Set-JsonStringValue $settingsPath "trellis_path" $TrellisPath) {
+        Write-OK "trellis_path -> $($TrellisPath -replace '\\','/')"
+    }
+} else {
+    Write-OK "trellis_path = '$(Read-JsonStringValue $settingsPath 'trellis_path')' (default)"
+}
+
+# Blender executable (OPTIONAL; blank = auto-detect / skip the Blender step).
+if ($BlenderExe) {
+    if (Set-JsonStringValue $settingsPath "blender_exe" $BlenderExe) {
+        Write-OK "blender_exe -> $($BlenderExe -replace '\\','/')"
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -154,7 +215,9 @@ if ($SkipTrellis) {
     # 6f. Apply TRELLIS patches (idempotent)
     Write-Host "  Applying TRELLIS patches..." -ForegroundColor Gray
     $env:TRELLIS_PATH = $trellisPath
-    & $py "scripts/apply_trellis_patches.py" --trellis-path $trellisPath
+    # Use an absolute python path: CWD is RepoRoot here, but the venv lives in backend/.
+    $pyAbs = Join-Path $RepoRoot "backend\.venv\Scripts\python.exe"
+    & $pyAbs "scripts/apply_trellis_patches.py" --trellis-path $trellisPath
     if ($LASTEXITCODE -ne 0) { Write-Fail "TRELLIS patch step failed (see messages above)" }
     Write-OK "TRELLIS patches applied"
 }
@@ -168,8 +231,11 @@ if ($SkipFrontend) {
     Write-Step 7 "Frontend npm install"
     Set-Location frontend
     if (-not (Test-Path "node_modules")) {
-        Write-Host "  Running npm install..." -ForegroundColor Gray
-        npm install --silent
+        # --legacy-peer-deps is REQUIRED: @google/model-viewer pins an older `three`
+        # peer that conflicts with three@0.184 / @types/three, which makes a plain
+        # `npm install` fail with ERESOLVE on a fresh machine.
+        Write-Host "  Running npm install --legacy-peer-deps..." -ForegroundColor Gray
+        npm install --legacy-peer-deps --silent
         Write-OK "npm install done"
     } else {
         Write-OK "node_modules already exists (skipped)"
@@ -226,6 +292,11 @@ if ($SkipTrellis) {
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "  Setup complete!" -ForegroundColor Green
+Write-Host ""
+Write-Host "  Paths (config/settings.json is the source of truth):" -ForegroundColor Cyan
+Write-Host "    godot_export_path = $(Read-JsonStringValue $settingsPath 'godot_export_path')" -ForegroundColor White
+Write-Host "    trellis_path      = $(Read-JsonStringValue $settingsPath 'trellis_path')" -ForegroundColor White
+Write-Host "    (re-run with -GodotExportPath / -TrellisPath / -BlenderExe to change them)" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  How to start:" -ForegroundColor Cyan
 Write-Host "    Terminal 1: cd backend; .\.venv\Scripts\uvicorn app.main:app --reload --reload-dir app --port 8000" -ForegroundColor White
