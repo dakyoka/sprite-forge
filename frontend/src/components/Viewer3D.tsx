@@ -1,27 +1,23 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import type { Job } from "@/lib/api";
 import { outputUrl, inputUrl } from "@/lib/api";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 interface Props {
   job: Job | null;
 }
 
-// model-viewer はカスタム要素。TypeScript を満たすためにキャストする(any は使わない)。
-const ModelViewer = "model-viewer" as unknown as React.FC<
-  React.HTMLAttributes<HTMLElement> & {
-    src: string;
-    "camera-controls"?: boolean | string;
-    "auto-rotate"?: boolean | string;
-    "auto-rotate-delay"?: string;
-    "rotation-per-second"?: string;
-    "shadow-intensity"?: string;
-    exposure?: string;
-    "environment-image"?: string;
-    ar?: boolean;
-    ref?: React.Ref<HTMLElement>;
-  }
->;
+// three / r3f はクライアント専用。SSR を避けるため動的 import する。
+const ModelCanvas = dynamic(() => import("./ModelCanvas"), {
+  ssr: false,
+  loading: () => (
+    <div className="absolute inset-0 flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" />
+    </div>
+  ),
+});
 
 function fmtNum(n: number | null): string {
   return n == null ? "—" : n.toLocaleString("en-US");
@@ -32,21 +28,40 @@ function fmtSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function Viewer3D({ job }: Props) {
-  const mvRef = useRef<HTMLElement>(null);
+// ダークテーマのコントロールチップ
+const chipBase =
+  "border px-2 py-1 text-[9px] font-bold uppercase tracking-wider rounded transition-colors";
+const chipIdle =
+  "bg-neutral-900/80 border-neutral-700 text-neutral-300 hover:text-white hover:border-neutral-500";
+const chipActive = "bg-purple-500 border-purple-500 text-white hover:bg-purple-600";
 
-  // Web コンポーネントをクライアント側で登録する
-  useEffect(() => {
-    import("@google/model-viewer");
-  }, []);
+// ライティングのデフォルト値(初期状態でしっかり見えるように)
+const DEFAULT_AMBIENT = 0.6;
+const DEFAULT_KEY = 2.6;
+const DEFAULT_EXPOSURE = 1.0;
+
+export default function Viewer3D({ job }: Props) {
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
+
+  // 自動回転はデフォルト OFF。
+  const [autoRotate, setAutoRotate] = useState(false);
+  const [wireframe, setWireframe] = useState(false);
+  const [showLights, setShowLights] = useState(false);
+
+  // ライティング(実際にレンダリングへ反映される値)
+  const [ambient, setAmbient] = useState(DEFAULT_AMBIENT);
+  const [keyLight, setKeyLight] = useState(DEFAULT_KEY);
+  const [exposure, setExposure] = useState(DEFAULT_EXPOSURE);
+
+  const handleReset = () => {
+    // OrbitControls の保存状態(初回フレーミング)へ戻す。
+    controlsRef.current?.reset();
+  };
+
+  const isCompleted = job?.status === "completed" && !!job.output_glb;
 
   return (
-    <div className="w-full h-full bg-[#030303] relative overflow-hidden flex flex-col items-center justify-center">
-      {/* grid */}
-      <div className="absolute inset-0 opacity-[0.14]"
-        style={{ backgroundImage: "linear-gradient(#2a2a2a 1px,transparent 1px),linear-gradient(90deg,#2a2a2a 1px,transparent 1px)", backgroundSize: "42px 42px" }}
-      />
-
+    <div className="w-full h-full bg-[#0a0a0a] relative overflow-hidden flex flex-col items-center justify-center">
       {/* badge */}
       <div className="absolute top-2.5 left-2.5 bg-purple-400/12 border border-purple-400/24 text-purple-400 px-2 py-1 text-[9px] font-bold uppercase tracking-wider rounded z-10">
         ▣ 3D プレビュー
@@ -54,19 +69,87 @@ export default function Viewer3D({ job }: Props) {
 
       {/* controls */}
       <div className="absolute top-2.5 right-2.5 flex gap-1 z-10">
-        <button className="bg-black/75 border border-neutral-700 text-neutral-500 px-2 py-1 text-[9px] font-bold uppercase tracking-wider rounded hover:text-white transition-colors">
-          Wireframe
-        </button>
-        <button className="bg-black/75 border border-neutral-700 text-neutral-500 px-2 py-1 text-[9px] font-bold uppercase tracking-wider rounded hover:text-white transition-colors">
-          Reset
-        </button>
+        {isCompleted && (
+          <>
+            <button
+              onClick={() => setAutoRotate((v) => !v)}
+              aria-pressed={autoRotate}
+              title="自動回転"
+              className={`${chipBase} ${autoRotate ? chipActive : chipIdle}`}
+            >
+              ↻ 自動回転
+            </button>
+            <button
+              onClick={() => setWireframe((v) => !v)}
+              aria-pressed={wireframe}
+              title="ワイヤーフレーム表示"
+              className={`${chipBase} ${wireframe ? chipActive : chipIdle}`}
+            >
+              Wireframe
+            </button>
+            <button onClick={handleReset} title="視点をリセット" className={`${chipBase} ${chipIdle}`}>
+              Reset
+            </button>
+            <button
+              onClick={() => setShowLights((v) => !v)}
+              aria-pressed={showLights}
+              title="ライティング設定"
+              className={`${chipBase} ${showLights ? chipActive : chipIdle}`}
+            >
+              ☀ Light
+            </button>
+          </>
+        )}
         {job?.output_glb && (
-          <a href={outputUrl(job.job_id)} download
-            className="bg-black/75 border border-purple-400/30 text-purple-400 px-2 py-1 text-[9px] font-bold uppercase tracking-wider rounded hover:text-purple-300 transition-colors">
+          <a
+            href={outputUrl(job.job_id)}
+            download
+            className={`${chipBase} bg-purple-400/12 border-purple-400/40 text-purple-300 hover:bg-purple-400/20 hover:text-purple-200`}
+          >
             GLB ↓
           </a>
         )}
       </div>
+
+      {/* lighting panel */}
+      {isCompleted && showLights && (
+        <div className="absolute top-12 right-2.5 w-44 bg-neutral-900/90 border border-neutral-700 rounded-md p-3 z-20 backdrop-blur-sm flex flex-col gap-3 shadow-xl">
+          <LightSlider
+            label="環境光"
+            value={ambient}
+            min={0}
+            max={3}
+            step={0.05}
+            onChange={setAmbient}
+          />
+          <LightSlider
+            label="キーライト"
+            value={keyLight}
+            min={0}
+            max={8}
+            step={0.1}
+            onChange={setKeyLight}
+          />
+          <LightSlider
+            label="露出"
+            value={exposure}
+            min={0.1}
+            max={3}
+            step={0.05}
+            onChange={setExposure}
+          />
+          <button
+            onClick={() => {
+              setAmbient(DEFAULT_AMBIENT);
+              setKeyLight(DEFAULT_KEY);
+              setExposure(DEFAULT_EXPOSURE);
+            }}
+            className="text-[9px] uppercase tracking-wider text-neutral-400 hover:text-white transition-colors self-end"
+          >
+            初期値に戻す
+          </button>
+        </div>
+      )}
 
       {/* empty state */}
       {!job && (
@@ -106,19 +189,17 @@ export default function Viewer3D({ job }: Props) {
         </div>
       )}
 
-      {/* completed — real 3D model */}
-      {job && job.status === "completed" && job.output_glb && (
-        <ModelViewer
+      {/* completed — react-three-fiber による実 3D 表示 */}
+      {isCompleted && job && (
+        <ModelCanvas
           key={job.job_id}
-          ref={mvRef}
-          src={outputUrl(job.job_id)}
-          camera-controls
-          auto-rotate
-          auto-rotate-delay="0"
-          rotation-per-second="18deg"
-          shadow-intensity="1"
-          exposure="0.9"
-          style={{ width: "100%", height: "100%" }}
+          url={outputUrl(job.job_id)}
+          autoRotate={autoRotate}
+          wireframe={wireframe}
+          ambient={ambient}
+          keyLight={keyLight}
+          exposure={exposure}
+          controlsRef={controlsRef}
         />
       )}
 
@@ -139,7 +220,7 @@ export default function Viewer3D({ job }: Props) {
       )}
 
       {/* stats */}
-      {job?.status === "completed" && (
+      {isCompleted && job && (
         <div className="absolute bottom-2.5 left-2.5 flex gap-1.5 z-10">
           {([
             ["🔷", "頂点", fmtNum(job.vertices)],
@@ -147,14 +228,47 @@ export default function Viewer3D({ job }: Props) {
             ["💾", "サイズ", fmtSize(job.glb_size)],
             ["📄", "形式", "GLB"],
           ] as const).map(([icon, label, value]) => (
-            <div key={label} className="bg-black/80 border border-neutral-700 px-2 py-1 rounded text-center">
-              <p className="text-[11px] font-bold text-neutral-200">{value}</p>
-              <p className="text-[8px] text-neutral-600 uppercase tracking-wider">{icon} {label}</p>
+            <div key={label} className="bg-neutral-900/85 border border-neutral-700 px-2 py-1 rounded text-center shadow-sm backdrop-blur-sm">
+              <p className="text-[11px] font-bold text-neutral-100">{value}</p>
+              <p className="text-[8px] text-neutral-400 uppercase tracking-wider">{icon} {label}</p>
             </div>
           ))}
         </div>
       )}
-
     </div>
+  );
+}
+
+function LightSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="flex items-center justify-between text-[9px] uppercase tracking-wider text-neutral-400">
+        <span>{label}</span>
+        <span className="text-neutral-200 tabular-nums">{value.toFixed(2)}</span>
+      </span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full accent-purple-500 h-1 cursor-pointer"
+      />
+    </label>
   );
 }
