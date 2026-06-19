@@ -140,17 +140,6 @@ export default function Home() {
               <DropZone onFile={handleFile} currentFile={null} />
             </div>
 
-            {/* auto hint */}
-            <div className="bg-blue-400/5 border border-blue-400/18 rounded p-3 flex gap-2 items-start">
-              <span className="text-base flex-shrink-0">⚡</span>
-              <div>
-                <p className="text-[11px] font-bold text-blue-400 mb-0.5">画像を読み込むと自動で処理が始まります</p>
-                <p className="text-[10px] text-blue-400/80 leading-relaxed">
-                  複数枚をまとめて投入できます。キューに並べて 1 枚ずつ自動処理します。
-                </p>
-              </div>
-            </div>
-
             {/* error */}
             {error && (
               <div className="bg-red-400/8 border border-red-400/25 rounded p-3 text-[10px] text-red-400">
