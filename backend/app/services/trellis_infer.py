@@ -20,11 +20,31 @@ def _setup_trellis_path():
     os.environ.setdefault("ATTN_BACKEND", "xformers")
     os.environ.setdefault("SPARSE_BACKEND", "spconv")
     os.environ.setdefault("SPCONV_ALGO", "native")
-    # VRAM 断片化によるスピル悪化を緩和 (8GB 環境で特に効く)
-    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    # VRAM 断片化によるスピル緩和。
+    # `expandable_segments:True` は Linux 専用で、Windows では
+    # "expandable_segments not supported on this platform" 警告のうえ
+    # 断片化を *悪化* させ、SLAT サンプリングが共有メモリへスピルして
+    # 146s/it まで落ち込む主因になっていた。プラットフォームで切り分ける。
+    if sys.platform.startswith("linux"):
+        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    # Windows では PYTORCH_CUDA_ALLOC_CONF を設定しない。
+    # `max_split_size_mb` を小さく設定すると spconv(SLAT サンプリング)の大きな
+    # 連続確保が組み直せず逆に OOM するため、既定アロケータ + ドライバの
+    # システムメモリフォールバックに任せる。VRAM 削減はフェーズ別オフロードで行う。
 
 
 _setup_trellis_path()
+
+# 出力をライン/アンバッファリングにし、デコード・ベイク段のログがブロック
+# バッファに溜め込まれず即座に親プロセスへストリームされるようにする。
+# (非 tty のパイプ越しだと既定はブロックバッファリングのため、サンプリング後の
+#  "decode/postprocess/bake" 段が完了まで無音になっていた。各 print の
+#  flush=True と合わせて二重に保証する。)
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 
 def to_glb_fast(app_rep, mesh, simplify=0.95, fill_holes=True,
@@ -57,7 +77,7 @@ def to_glb_fast(app_rep, mesh, simplify=0.95, fill_holes=True,
     # メッシュ後処理 (簡略化 + 不可視面除去 + 穴埋め)
     # fill_holes のビュー数/解像度は VRAM とレンダリング時間を最も食う箇所なので
     # 8GB 環境向けに大幅に下げる (品質はやや低下するが現実的な時間で完了させる)。
-    print(f"[TRELLIS] postprocess_mesh (fill_holes views={fill_holes_num_views}, res={fill_holes_resolution})...", file=sys.stderr)
+    print(f"[TRELLIS] postprocess_mesh (fill_holes views={fill_holes_num_views}, res={fill_holes_resolution})...", file=sys.stderr, flush=True)
     vertices, faces = postprocess_mesh(
         vertices, faces,
         simplify=simplify > 0,
@@ -72,11 +92,11 @@ def to_glb_fast(app_rep, mesh, simplify=0.95, fill_holes=True,
     )
 
     # UV展開
-    print("[TRELLIS] parametrize_mesh (UV unwrap)...", file=sys.stderr)
+    print("[TRELLIS] parametrize_mesh (UV unwrap)...", file=sys.stderr, flush=True)
     vertices, faces, uvs = parametrize_mesh(vertices, faces)
 
     # マルチビュー観測をレンダリング
-    print(f"[TRELLIS] render_multiview (nviews={nviews}, res={render_resolution})...", file=sys.stderr)
+    print(f"[TRELLIS] render_multiview (nviews={nviews}, res={render_resolution})...", file=sys.stderr, flush=True)
     observations, extrinsics, intrinsics = render_multiview(
         app_rep, resolution=render_resolution, nviews=nviews
     )
@@ -160,7 +180,7 @@ def _resolve_profile(args):
         from app.core.gpu_profile import resolve_profile
         return resolve_profile(forced_preset=args.gpu_preset, cli_overrides=cli_overrides)
     except Exception as exc:  # gpu_profile が import できない等の保険
-        print(f"WARNING: gpu_profile 解決に失敗、軽量既定値で続行: {exc}", file=sys.stderr)
+        print(f"WARNING: gpu_profile 解決に失敗、軽量既定値で続行: {exc}", file=sys.stderr, flush=True)
         return {
             "trellis_steps": args.steps or 6,
             "texture_size": args.texture_size or 512,
@@ -199,6 +219,7 @@ def main():
         f"[TRELLIS] GPU profile: preset={profile['preset_name']} vram={vram_str} "
         f"steps={steps} texture_size={texture_size} bake_mode={bake_mode} fp16={fp16}",
         file=sys.stderr,
+        flush=True,
     )
 
     try:
@@ -208,16 +229,16 @@ def main():
     except ImportError as exc:
         import traceback
         traceback.print_exc()
-        print(f"ERROR: TRELLIS import failed: {exc}", file=sys.stderr)
-        print("SETUP.md を参照して H:/TRELLIS をセットアップしてください。", file=sys.stderr)
+        print(f"ERROR: TRELLIS import failed: {exc}", file=sys.stderr, flush=True)
+        print("SETUP.md を参照して H:/TRELLIS をセットアップしてください。", file=sys.stderr, flush=True)
         sys.exit(1)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cpu":
-        print("WARNING: CUDA not available, running on CPU (very slow)", file=sys.stderr)
+        print("WARNING: CUDA not available, running on CPU (very slow)", file=sys.stderr, flush=True)
         fp16 = False
 
-    print(f"[TRELLIS] Loading model: {args.model} (device={device}, fp16={fp16})", file=sys.stderr)
+    print(f"[TRELLIS] Loading model: {args.model} (device={device}, fp16={fp16})", file=sys.stderr, flush=True)
     pipeline = TrellisImageTo3DPipeline.from_pretrained(args.model)
     # 重みは常に fp32 のまま保持する。以前は fp16 時に全モデルへ .half() を適用していたが、
     # mesh デコーダ (cube2mesh/flexicubes) の scatter_reduce が fp32 を前提としており
@@ -225,42 +246,108 @@ def main():
     # 代わりに fp16 はサンプリング段のみ autocast で適用し、デコードは fp32 で実行する。
     pipeline.to(device)
 
+    # --- 8GB VRAM 対策: フェーズ別モデルオフロード ---
+    # TRELLIS-image-large の全モデル(image_cond + 2 つの flow + 各 decoder)を同時に
+    # GPU に載せると 8GB では SLAT サンプリング(spconv indice_conv)や
+    # decode_slat(flexicubes mesh decode, fp32)が OOM する。各フェーズで必要な
+    # モデルだけを GPU に載せ、残りは CPU へ退避してピーク VRAM を最小化する。
+    def _move(names, dev):
+        for n in names:
+            m = pipeline.models.get(n)
+            if m is not None:
+                m.to(dev)
+
+    offload = device == "cuda"
+    if offload:
+        # Pipeline.device は「最初のモデルの所在」を返す実装のため、一部モデルを
+        # CPU へ退避すると cuda 上で作るべきノイズが cpu 側になりデバイス不一致で
+        # 落ちる。推論中は常に cuda を返すよう device プロパティを固定する。
+        TrellisImageTo3DPipeline.device = property(lambda self: torch.device("cuda"))
+        pipeline.to("cpu")
+        torch.cuda.empty_cache()
+
     from PIL import Image
     image = Image.open(args.input).convert("RGBA")
 
     use_fp16 = fp16 and device == "cuda"
-    print(f"[TRELLIS] Running inference (steps={steps}, fp16={use_fp16}, device={device})...", file=sys.stderr)
+    print(f"[TRELLIS] Running inference (steps={steps}, fp16={use_fp16}, device={device})...", file=sys.stderr, flush=True)
     # run() 相当の処理を手動展開する。fp16 autocast はサンプリング段
     # (sample_sparse_structure / sample_slat) にのみ適用し、decode_slat は
     # fp32 で実行することで mesh デコーダの scatter_reduce dtype 不一致を回避する。
-    # spconv を使う sample_slat も autocast 配下で動作することを確認済み
-    # (両サンプリング段を fp16 化)。
     with torch.no_grad():
-        # run() は preprocess_image=True が既定。その挙動を踏襲する。
+        # 画像前処理 + 条件付け (image_cond_model のみ GPU)
+        if offload:
+            _move(["image_cond_model"], "cuda")
         img = pipeline.preprocess_image(image)
         cond = pipeline.get_cond([img])
+        if offload:
+            _move(["image_cond_model"], "cpu")
+            torch.cuda.empty_cache()
+
         torch.manual_seed(42)  # run() と同様にサンプリング前にシードを設定
         ss_params = {"steps": steps, "cfg_strength": args.cfg_strength_sparse}
         slat_params = {"steps": steps, "cfg_strength": args.cfg_strength_slat}
+
+        def _sample_sparse():
+            # 疎構造サンプリング: sparse_structure の flow/decoder のみ GPU。
+            if offload:
+                _move(["sparse_structure_flow_model", "sparse_structure_decoder"], "cuda")
+            print("[TRELLIS] sample_sparse_structure...", file=sys.stderr, flush=True)
+            c = pipeline.sample_sparse_structure(cond, 1, ss_params)
+            if offload:
+                _move(["sparse_structure_flow_model", "sparse_structure_decoder"], "cpu")
+                torch.cuda.empty_cache()
+            return c
+
+        def _sample_slat(c):
+            # SLAT サンプリング: slat_flow_model のみ GPU(spconv が最も VRAM を食う段)。
+            if offload:
+                _move(["slat_flow_model"], "cuda")
+            print(f"[TRELLIS] sample_slat (voxels={c.shape[0]})...", file=sys.stderr, flush=True)
+            s = pipeline.sample_slat(cond, c, slat_params)
+            if offload:
+                _move(["slat_flow_model"], "cpu")
+                torch.cuda.empty_cache()
+            return s
+
         if use_fp16:
             with torch.autocast(device_type="cuda", dtype=torch.float16):
-                coords = pipeline.sample_sparse_structure(cond, 1, ss_params)
-                slat = pipeline.sample_slat(cond, coords, slat_params)
+                coords = _sample_sparse()
+                slat = _sample_slat(coords)
         else:
-            coords = pipeline.sample_sparse_structure(cond, 1, ss_params)
-            slat = pipeline.sample_slat(cond, coords, slat_params)
-        # デコードは fp32 (autocast なし) で実行し scatter dtype 不一致を防ぐ。
-        # GLB 化に必要なのは mesh と gaussian のみ。radiance_field のデコードを
-        # 省略して VRAM とデコード時間を削減する。
-        outputs = pipeline.decode_slat(slat, formats=["mesh", "gaussian"])
-    print("[TRELLIS] Sampling + decode done. Starting GLB export...", file=sys.stderr)
+            coords = _sample_sparse()
+            slat = _sample_slat(coords)
+
+        # デコードは fp32 (autocast なし)。8GB では mesh(flexicubes)と gaussian の
+        # 2 デコーダを同時に載せると共有メモリへスピルして極端に遅くなるため、
+        # 1 デコーダずつ・別々に decode する。最も重い mesh decode を、他の出力を
+        # まだ保持していない状態で先に実行してピーク VRAM を最小化する。
+        # GLB 化に必要なのは mesh と gaussian のみ(radiance_field は省略)。
+        if device == "cuda":
+            torch.cuda.empty_cache()
+        outputs = {}
+        if offload:
+            _move(["slat_decoder_mesh"], "cuda")
+        print("[TRELLIS] decode_slat (mesh)...", file=sys.stderr, flush=True)
+        outputs.update(pipeline.decode_slat(slat, formats=["mesh"]))
+        if offload:
+            _move(["slat_decoder_mesh"], "cpu")
+            torch.cuda.empty_cache()
+        if offload:
+            _move(["slat_decoder_gs"], "cuda")
+        print("[TRELLIS] decode_slat (gaussian)...", file=sys.stderr, flush=True)
+        outputs.update(pipeline.decode_slat(slat, formats=["gaussian"]))
+        if offload:
+            _move(["slat_decoder_gs"], "cpu")
+            torch.cuda.empty_cache()
+    print("[TRELLIS] Sampling + decode done. Starting GLB export...", file=sys.stderr, flush=True)
     if device == "cuda":
         torch.cuda.empty_cache()
 
     glb_path = Path(args.output)
     if bake_mode == "opt":
         # 高品質モード: TRELLIS 標準の勾配最適化ベイク (VRAM 多め)
-        print(f"[TRELLIS] Exporting GLB (opt texture bake, size={texture_size}): {glb_path}", file=sys.stderr)
+        print(f"[TRELLIS] Exporting GLB (opt texture bake, size={texture_size}): {glb_path}", file=sys.stderr, flush=True)
         mesh = postprocessing_utils.to_glb(
             outputs["gaussian"][0],
             outputs["mesh"][0],
@@ -269,7 +356,7 @@ def main():
         )
     else:
         # 軽量モード: fast ベイク (低 VRAM・短時間)
-        print(f"[TRELLIS] Exporting GLB (fast texture bake, size={texture_size}): {glb_path}", file=sys.stderr)
+        print(f"[TRELLIS] Exporting GLB (fast texture bake, size={texture_size}): {glb_path}", file=sys.stderr, flush=True)
         mesh = to_glb_fast(
             outputs["gaussian"][0],
             outputs["mesh"][0],
@@ -279,7 +366,7 @@ def main():
             render_resolution=args.render_resolution,
         )
     mesh.export(str(glb_path))
-    print(f"OK: {glb_path}")
+    print(f"OK: {glb_path}", flush=True)
 
 
 if __name__ == "__main__":
