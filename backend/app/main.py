@@ -10,10 +10,10 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import pipeline, jobs, history, output, input_image, queue
+from app.routes import pipeline, jobs, history, output, input_image, queue, gpu, settings as settings_route
 from app.core.config import settings
-from app.core import job_store, queue_manager
-from app.models.job import JobStatus
+from app.core import job_store, process_guard, queue_manager
+from app.models.job import JobStatus, StepStatus
 from app.services.pipeline_runner import run_pipeline
 
 logger = logging.getLogger(__name__)
@@ -66,18 +66,31 @@ async def _worker_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 再起動前に queued だったジョブを順序を保って再エンキューする。
+    # 前プロセスが残した孤児 TRELLIS 子プロセスを掃除する。
+    # (バックエンドが kill/再起動されると Popen の子は OS 上に残り、GPU VRAM を
+    #  握ったまま次の推論をデッドロックさせる。これがハングの主因。)
+    killed = process_guard.kill_orphan_trellis()
+    if killed:
+        logger.warning(f"起動時に孤児 TRELLIS プロセスを {killed} 件終了しました")
+
     # 再起動前に running だったジョブは orphan なので failed に倒す。
+    # ※ ここで先に reconcile しておかないと「永遠にスピンする running」が残る。
+    for j in job_store.jobs.values():
+        if j.status == JobStatus.running:
+            j.status = JobStatus.failed
+            j.error_msg = "バックエンド再起動により中断されました"
+            for step in j.steps:
+                if step.status == StepStatus.running:
+                    step.status = StepStatus.error
+                    step.detail = "バックエンド再起動により中断されました"
+
+    # 再起動前に queued だったジョブを順序(created_at 昇順)を保って再エンキューする。
     queued = sorted(
         [j for j in job_store.jobs.values() if j.status == JobStatus.queued],
         key=lambda j: j.created_at,
     )
     for j in queued:
         queue_manager.enqueue(j.job_id)
-    for j in job_store.jobs.values():
-        if j.status == JobStatus.running:
-            j.status = JobStatus.failed
-            j.error_msg = "バックエンド再起動により中断されました"
     job_store.save()
 
     # ワーカー起動用イベントをセットアップ
@@ -88,6 +101,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # シャットダウン時、実行中の TRELLIS 子プロセスを確実に終了させる
+        # (graceful stop でも子を取り残さない)。
+        try:
+            queue_manager.terminate_running_proc()
+        except Exception:
+            logger.exception("shutdown: terminate_running_proc failed")
         task.cancel()
 
 
@@ -113,6 +132,8 @@ app.include_router(history.router,     prefix="/api/history",  tags=["history"])
 app.include_router(output.router,      prefix="/api/output",   tags=["output"])
 app.include_router(input_image.router, prefix="/api/input",    tags=["input"])
 app.include_router(queue.router,       prefix="/api/queue",    tags=["queue"])
+app.include_router(gpu.router,         prefix="/api/gpu",      tags=["gpu"])
+app.include_router(settings_route.router, prefix="/api/settings", tags=["settings"])
 
 
 @app.get("/api/health")
