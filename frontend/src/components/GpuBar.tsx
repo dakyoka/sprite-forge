@@ -9,17 +9,17 @@ const bars: Bar[] = [
 
 export default function GpuBar() {
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-1.5">
       {bars.map((b) => (
         <div key={b.label}>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-neutral-300">{b.label}</span>
-            <span className={`text-[10px] font-bold ${b.text}`}>
+          <div className="flex items-center justify-between mb-0.5 gap-1">
+            <span className="text-[9px] text-neutral-400 truncate">{b.label}</span>
+            <span className={`text-[9px] font-bold whitespace-nowrap ${b.text}`}>
               {b.value}
               <span className="text-neutral-500 font-normal"> / {b.max} {b.unit}</span>
             </span>
           </div>
-          <div className="bg-neutral-800 rounded-full h-1.5 overflow-hidden">
+          <div className="bg-neutral-800 rounded-full h-1 overflow-hidden">
             <div
               className={`h-full rounded-full ${b.color}`}
               style={{ width: `${Math.min(100, (b.value / b.max) * 100)}%` }}

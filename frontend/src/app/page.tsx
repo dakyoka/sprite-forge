@@ -59,11 +59,14 @@ export default function Home() {
   }, [poll]);
 
   const handleCancel = useCallback(async (jobId: string) => {
+    // 楽観更新: 即座にリストから除外(ポーリング待ちで残って見えるのを防ぐ)
+    setJobs((prev) => prev.filter((j) => j.job_id !== jobId));
     try {
       await cancelJob(jobId);
-      poll();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      poll();
     }
   }, [poll]);
 
@@ -162,12 +165,6 @@ export default function Home() {
               />
             </div>
 
-            {/* GPU */}
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-widest text-neutral-500 mb-2">GPU リソース</p>
-              <GpuBar />
-            </div>
-
             {/* pipeline */}
             <div>
               <p className="text-[9px] font-bold uppercase tracking-widest text-neutral-500 mb-2">パイプライン進行状況</p>
@@ -237,6 +234,12 @@ export default function Home() {
             onSelect={(j) => setSelectedId(j.job_id)}
           />
         </aside>
+      </div>
+
+      {/* ── GPU 右下フローティング (PCのみ・控えめ表示) ── */}
+      <div className="hidden lg:block fixed bottom-0 right-0 z-40 w-[348px] bg-neutral-900/95 backdrop-blur border-t border-l border-neutral-800 rounded-tl-lg px-4 py-3 shadow-xl">
+        <p className="text-[8px] font-bold uppercase tracking-widest text-neutral-500 mb-2">GPU リソース</p>
+        <GpuBar />
       </div>
 
       {/* ── MOBILE NAV ── */}

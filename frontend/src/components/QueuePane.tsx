@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Job } from "@/lib/api";
 import { inputUrl } from "@/lib/api";
 
@@ -15,31 +15,45 @@ interface Props {
 /**
  * 実行中ジョブ(先頭・ドラッグ不可)＋ キュー中ジョブ(ドラッグで並び替え)を表示する。
  * 並び替えはネイティブ HTML5 drag-and-drop のみ(外部依存なし)。
+ * ドラッグ中はホバー先へ「よけて」リアルタイムに並びが入れ替わる(ライブプレビュー)。
  */
 export default function QueuePane({ running, queued, selectedId, onSelect, onCancel, onReorder }: Props) {
-  const [dragId, setDragId]   = useState<string | null>(null);
-  const [overId, setOverId]   = useState<string | null>(null);
+  const [order, setOrder] = useState<string[]>(() => queued.map((j) => j.job_id));
+  const [dragId, setDragId] = useState<string | null>(null);
+  const dragging = dragId !== null;
 
-  const handleDrop = (targetId: string) => {
-    if (!dragId || dragId === targetId) {
-      setDragId(null);
-      setOverId(null);
-      return;
-    }
-    const ids = queued.map((j) => j.job_id);
-    const from = ids.indexOf(dragId);
-    const to   = ids.indexOf(targetId);
-    if (from === -1 || to === -1) { setDragId(null); setOverId(null); return; }
-    ids.splice(to, 0, ids.splice(from, 1)[0]);
-    onReorder(ids);
-    setDragId(null);
-    setOverId(null);
+  // ドラッグ中でない時だけ、ポーリング結果(queued)からローカル順を同期する
+  useEffect(() => {
+    if (!dragging) setOrder(queued.map((j) => j.job_id));
+  }, [queued, dragging]);
+
+  const byId = new Map(queued.map((j) => [j.job_id, j]));
+  const orderedJobs = order.map((id) => byId.get(id)).filter((j): j is Job => !!j);
+
+  const moveDragTo = (targetId: string) => {
+    if (!dragId || dragId === targetId) return;
+    setOrder((prev) => {
+      const cur = [...prev];
+      const from = cur.indexOf(dragId);
+      const to = cur.indexOf(targetId);
+      if (from === -1 || to === -1 || from === to) return prev;
+      cur.splice(to, 0, cur.splice(from, 1)[0]);
+      return cur;
+    });
   };
 
-  if (!running && queued.length === 0) {
-    return (
-      <p className="text-[9px] text-neutral-700 uppercase tracking-wider">キューは空です</p>
-    );
+  const handleDragEnd = () => {
+    if (dragId) onReorder(order);
+    setDragId(null);
+  };
+
+  const removeNow = (jobId: string) => {
+    setOrder((prev) => prev.filter((id) => id !== jobId));
+    onCancel(jobId);
+  };
+
+  if (!running && orderedJobs.length === 0) {
+    return <p className="text-[9px] text-neutral-700 uppercase tracking-wider">キューは空です</p>;
   }
 
   return (
@@ -60,6 +74,8 @@ export default function QueuePane({ running, queued, selectedId, onSelect, onCan
             </p>
           </div>
           <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onCancel(running.job_id); }}
             className="text-[9px] font-bold uppercase tracking-wider text-red-400 border border-red-400/30 bg-red-400/10 px-2 py-1 rounded hover:bg-red-400/20 transition-colors flex-shrink-0"
           >
@@ -68,21 +84,19 @@ export default function QueuePane({ running, queued, selectedId, onSelect, onCan
         </div>
       )}
 
-      {queued.map((j, i) => (
+      {orderedJobs.map((j, i) => (
         <div
           key={j.job_id}
           draggable
           onDragStart={() => setDragId(j.job_id)}
-          onDragOver={(e) => { e.preventDefault(); setOverId(j.job_id); }}
-          onDragLeave={() => setOverId((cur) => (cur === j.job_id ? null : cur))}
-          onDrop={(e) => { e.preventDefault(); handleDrop(j.job_id); }}
-          onDragEnd={() => { setDragId(null); setOverId(null); }}
+          onDragOver={(e) => { e.preventDefault(); moveDragTo(j.job_id); }}
+          onDrop={(e) => { e.preventDefault(); handleDragEnd(); }}
+          onDragEnd={handleDragEnd}
           onClick={() => onSelect(j)}
-          className={`flex items-center gap-2 px-2 py-1.5 rounded border cursor-grab active:cursor-grabbing transition-all ${
-            overId === j.job_id ? "border-yellow-400 bg-yellow-400/10" :
+          className={`flex items-center gap-2 px-2 py-1.5 rounded border cursor-grab active:cursor-grabbing transition-all duration-150 ${
             selectedId === j.job_id ? "bg-neutral-800 border-neutral-600" :
             "border-neutral-800 bg-neutral-900/50 hover:border-neutral-700"
-          } ${dragId === j.job_id ? "opacity-40" : ""}`}
+          } ${dragId === j.job_id ? "opacity-30 ring-1 ring-yellow-400/60" : ""}`}
         >
           <span className="text-neutral-600 text-[10px] font-bold flex-shrink-0 w-3 text-center">{i + 1}</span>
           <Thumb jobId={j.job_id} />
@@ -92,8 +106,11 @@ export default function QueuePane({ running, queued, selectedId, onSelect, onCan
           </div>
           <span className="text-neutral-700 text-[11px] flex-shrink-0 select-none">⋮⋮</span>
           <button
-            onClick={(e) => { e.stopPropagation(); onCancel(j.job_id); }}
-            className="text-[11px] font-bold text-neutral-500 hover:text-red-400 px-1 flex-shrink-0 transition-colors"
+            type="button"
+            draggable={false}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); removeNow(j.job_id); }}
+            className="text-[12px] font-bold text-neutral-500 hover:text-red-400 px-1.5 py-0.5 flex-shrink-0 transition-colors"
             title="キューから削除"
           >
             ✕
