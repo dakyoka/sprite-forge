@@ -1,6 +1,7 @@
 # ML packages - install separately: pip install -r requirements-ml.txt
 # Requires GPU + time
+# torch: needed for rembg and TRELLIS
 torch>=2.3.0
 torchvision>=0.18.0
+# rembg: AI background removal (optional - skipped if image already has transparency)
 rembg>=2.0.56
-realesrgan>=0.3.0

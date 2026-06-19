@@ -14,7 +14,8 @@ class Settings(BaseModel):
     trellis_model: str = "microsoft/TRELLIS-image-large"
     trellis_steps: int = 12
     trellis_fp16: bool = True
-    upscale_factor: int = 4
+    upscale_target_width: int = 2048
+    upscale_target_height: int = 2048
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://localhost:3001",
