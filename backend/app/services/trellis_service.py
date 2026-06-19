@@ -5,6 +5,7 @@ GPU 適応: VRAM を自動検出し settings.json の gpu_presets から
 推論パラメータ(steps/texture_size/bake_mode/fp16)を選択する。
 8GB(low) / 12-16GB(standard) / 16GB+(high) に対応。
 """
+import asyncio
 import os
 import subprocess
 import sys
@@ -48,7 +49,10 @@ async def run(input_path: Path, job: Job) -> Path:
     elif settings.trellis_fp16 is False:
         cmd += ["--no-fp16"]
 
-    proc = subprocess.run(
+    # subprocess.run はブロッキング。async ループを塞がないよう別スレッドで実行する
+    # (これをしないと推論中フロントのポーリングが全て止まり、進捗が固まって見える)。
+    proc = await asyncio.to_thread(
+        subprocess.run,
         cmd, capture_output=True, text=True,
         timeout=settings.trellis_timeout_sec, env=env,
     )

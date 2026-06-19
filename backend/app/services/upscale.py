@@ -4,6 +4,7 @@ Step 2: 画像を TARGET_SIZE にリサイズ（アップスケール）
 - Pillow の LANCZOS フィルタで高品質リサイズ
 - 既にターゲットサイズ以上の場合はスキップ
 """
+import asyncio
 from pathlib import Path
 from PIL import Image
 
@@ -15,6 +16,11 @@ TARGET_H = settings.upscale_target_height
 
 
 async def run(input_path: Path, job: Job) -> Path:
+    # Pillow はブロッキングなので別スレッドで実行（イベントループを塞がない）
+    return await asyncio.to_thread(_resize, input_path)
+
+
+def _resize(input_path: Path) -> Path:
     out_path = input_path.parent / f"{input_path.stem}_upscaled.png"
 
     with Image.open(input_path) as img:

@@ -5,6 +5,7 @@ Step 3: 背景除去
   - rembg 未インストール時は RGBA 変換のみで通過
 背景がすでに除去済みの場合は config/settings.json で rembg_enabled を false にすること。
 """
+import asyncio
 from pathlib import Path
 from PIL import Image
 
@@ -13,6 +14,11 @@ from app.models.job import Job
 
 
 async def run(input_path: Path, job: Job) -> Path:
+    # rembg / Pillow はブロッキングなので別スレッドで実行
+    return await asyncio.to_thread(_process, input_path)
+
+
+def _process(input_path: Path) -> Path:
     out_path = input_path.parent / f"{input_path.stem}_nobg.png"
 
     with Image.open(input_path) as img:

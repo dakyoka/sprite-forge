@@ -7,6 +7,7 @@ Scale is intentionally left for manual adjustment in Godot.
 
 If Blender is not found, this step is skipped gracefully.
 """
+import asyncio
 import shutil
 import subprocess
 from pathlib import Path
@@ -52,7 +53,9 @@ async def run(input_glb: Path, job: Job) -> Path:
         str(input_glb),
         str(out_glb),
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    proc = await asyncio.to_thread(
+        subprocess.run, cmd, capture_output=True, text=True, timeout=120,
+    )
     if proc.returncode != 0:
         _log(job, f"Blender error (skipping): {proc.stderr[-400:]}")
         return input_glb
