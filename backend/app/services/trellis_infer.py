@@ -219,32 +219,40 @@ def main():
 
     print(f"[TRELLIS] Loading model: {args.model} (device={device}, fp16={fp16})", file=sys.stderr)
     pipeline = TrellisImageTo3DPipeline.from_pretrained(args.model)
-    if fp16 and device == "cuda":
-        for m in pipeline.models.values():
-            m.half()
+    # 重みは常に fp32 のまま保持する。以前は fp16 時に全モデルへ .half() を適用していたが、
+    # mesh デコーダ (cube2mesh/flexicubes) の scatter_reduce が fp32 を前提としており
+    # "scatter(): Expected self.dtype to be equal to src.dtype" でクラッシュしていた。
+    # 代わりに fp16 はサンプリング段のみ autocast で適用し、デコードは fp32 で実行する。
     pipeline.to(device)
 
     from PIL import Image
     image = Image.open(args.input).convert("RGBA")
 
-    print(f"[TRELLIS] Running inference (steps={steps}, fp16={fp16}, device={device})...", file=sys.stderr)
-    autocast_ctx = torch.cuda.amp.autocast(dtype=torch.float16) if (fp16 and device == "cuda") else torch.no_grad()
-    with autocast_ctx:
-        outputs = pipeline.run(
-            image,
-            seed=42,
-            # GLB 化に必要なのは mesh と gaussian のみ。radiance_field のデコードを
-            # 省略して VRAM とデコード時間を削減する。
-            formats=["mesh", "gaussian"],
-            sparse_structure_sampler_params={
-                "steps": steps,
-                "cfg_strength": args.cfg_strength_sparse,
-            },
-            slat_sampler_params={
-                "steps": steps,
-                "cfg_strength": args.cfg_strength_slat,
-            },
-        )
+    use_fp16 = fp16 and device == "cuda"
+    print(f"[TRELLIS] Running inference (steps={steps}, fp16={use_fp16}, device={device})...", file=sys.stderr)
+    # run() 相当の処理を手動展開する。fp16 autocast はサンプリング段
+    # (sample_sparse_structure / sample_slat) にのみ適用し、decode_slat は
+    # fp32 で実行することで mesh デコーダの scatter_reduce dtype 不一致を回避する。
+    # spconv を使う sample_slat も autocast 配下で動作することを確認済み
+    # (両サンプリング段を fp16 化)。
+    with torch.no_grad():
+        # run() は preprocess_image=True が既定。その挙動を踏襲する。
+        img = pipeline.preprocess_image(image)
+        cond = pipeline.get_cond([img])
+        torch.manual_seed(42)  # run() と同様にサンプリング前にシードを設定
+        ss_params = {"steps": steps, "cfg_strength": args.cfg_strength_sparse}
+        slat_params = {"steps": steps, "cfg_strength": args.cfg_strength_slat}
+        if use_fp16:
+            with torch.autocast(device_type="cuda", dtype=torch.float16):
+                coords = pipeline.sample_sparse_structure(cond, 1, ss_params)
+                slat = pipeline.sample_slat(cond, coords, slat_params)
+        else:
+            coords = pipeline.sample_sparse_structure(cond, 1, ss_params)
+            slat = pipeline.sample_slat(cond, coords, slat_params)
+        # デコードは fp32 (autocast なし) で実行し scatter dtype 不一致を防ぐ。
+        # GLB 化に必要なのは mesh と gaussian のみ。radiance_field のデコードを
+        # 省略して VRAM とデコード時間を削減する。
+        outputs = pipeline.decode_slat(slat, formats=["mesh", "gaussian"])
     print("[TRELLIS] Sampling + decode done. Starting GLB export...", file=sys.stderr)
     if device == "cuda":
         torch.cuda.empty_cache()

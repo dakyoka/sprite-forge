@@ -4,20 +4,21 @@
   "trellis_model": "microsoft/TRELLIS-image-large",
 
   "gpu_preset": "auto",
+  "_comment_fp16": "fp16 はサンプリング段のみ fp16 autocast を適用する意味 (decode は fp32 のまま)。全モデルの half 化ではない。",
   "gpu_presets": {
     "low": {
       "max_vram_gb": 10,
       "trellis_steps": 6,
       "texture_size": 512,
       "bake_mode": "fast",
-      "fp16": false
+      "fp16": true
     },
     "standard": {
       "max_vram_gb": 16,
       "trellis_steps": 12,
       "texture_size": 1024,
       "bake_mode": "fast",
-      "fp16": false
+      "fp16": true
     },
     "high": {
       "max_vram_gb": null,
