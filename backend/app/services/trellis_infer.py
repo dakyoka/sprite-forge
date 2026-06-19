@@ -12,7 +12,7 @@ def _setup_trellis_path():
     trellis_path = os.environ.get("TRELLIS_PATH", r"H:\TRELLIS")
     p = str(Path(trellis_path).resolve())
     if p not in sys.path:
-        sys.path.insert(0, p)
+        sys.path.append(p)
     os.environ.setdefault("ATTN_BACKEND", "xformers")
     os.environ.setdefault("SPARSE_BACKEND", "spconv")
 
