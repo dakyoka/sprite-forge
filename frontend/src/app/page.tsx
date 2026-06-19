@@ -28,14 +28,29 @@ export default function Home() {
 
   // ジョブポーリング
   const poll = useCallback(async (jobId: string) => {
+    // ポーリングがすでに停止済みなら何もしない（飛行中リクエストの競合防止）
+    if (!pollRef.current) return;
     try {
       const job = await getJob(jobId);
+      if (!pollRef.current) return; // レスポンス待機中に停止された場合は無視
       setCurrentJob(job);
       if (job.status === "completed" || job.status === "failed") {
-        if (pollRef.current) clearInterval(pollRef.current);
+        clearInterval(pollRef.current);
+        pollRef.current = null;
         if (job.status === "completed") setHistory((h) => [job, ...h.filter((j) => j.job_id !== job.job_id)]);
       }
-    } catch { /* ignore */ }
+    } catch (e: unknown) {
+      if (!pollRef.current) return;
+      // 404 = バックエンド再起動などでジョブが消えた → ポーリング停止してリセット
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("404") || msg.includes("not found") || msg.includes("Job not found")) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+        setCurrentJob(null);
+        setFile(null);
+        setError("バックエンドが再起動し、処理中のジョブが失われました。画像を再度ドロップしてください。");
+      }
+    }
   }, []);
 
   // 画像ドロップ → 自動パイプライン開始
@@ -47,6 +62,7 @@ export default function Home() {
       const job = await startPipeline(f);
       setCurrentJob(job);
       setSelectedId(job.job_id);
+      if (pollRef.current) clearInterval(pollRef.current);
       pollRef.current = setInterval(() => poll(job.job_id), 2000);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -56,7 +72,9 @@ export default function Home() {
   // 初期履歴読み込み
   useEffect(() => {
     listHistory().then(setHistory);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    return () => {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    };
   }, []);
 
   const running = currentJob?.status === "running" || currentJob?.status === "queued";

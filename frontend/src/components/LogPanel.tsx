@@ -22,9 +22,14 @@ export default function LogPanel({ job }: { job: Job | null }) {
 
   return (
     <div ref={ref} className="flex-1 overflow-y-auto p-3 font-mono text-[10px] leading-relaxed">
-      {lines.length === 0 && (
+      {lines.length === 0 && !job && (
         <span className="text-neutral-700 uppercase tracking-widest text-[9px]">
-          画像を読み込むとログがここに表示されます
+          画像をドロップするとログがここに表示されます
+        </span>
+      )}
+      {lines.length === 0 && job && (
+        <span className="text-blue-400/60 text-[9px]">
+          バックエンド接続中… ジョブ ID: {job.job_id.slice(0, 8)}
         </span>
       )}
       {lines.map((l, i) => (
