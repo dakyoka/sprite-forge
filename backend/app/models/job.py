@@ -13,6 +13,7 @@ class StepStatus(str, Enum):
     running  = "running"
     done     = "done"
     error    = "error"
+    skipped  = "skipped"  # 実質 no-op だったステップ(例: Blender 未検出)。完了とは区別する。
 
 
 class PipelineStep(BaseModel):
@@ -39,8 +40,6 @@ class Job(BaseModel):
     progress:    int = 0  # 0-100
     steps:       list[PipelineStep] = Field(default_factory=lambda: [
         PipelineStep(step_id="upload",    label="画像読み込み"),
-        PipelineStep(step_id="upscale",   label="アップスケール"),
-        PipelineStep(step_id="rembg",     label="背景除去"),
         PipelineStep(step_id="trellis",   label="Trellis 3D 生成"),
         PipelineStep(step_id="blender",   label="Blender 後処理"),
         PipelineStep(step_id="godot",     label="Godot 書き出し"),

@@ -9,7 +9,8 @@ from datetime import datetime
 from pathlib import Path
 
 from app.models.job import Job, JobStatus, StepStatus
-from app.services import upscale, rembg_service, trellis_service as trellis, blender_post, godot_export
+from app.services import trellis_service as trellis, blender_post, godot_export
+from app.services.step_result import StepResult
 from app.core import queue_manager
 
 logger = logging.getLogger(__name__)
@@ -19,10 +20,11 @@ class JobCancelled(Exception):
     """ジョブがユーザーによってキャンセルされたことを示す。"""
     pass
 
+# TRELLIS は内部で背景除去を行い入力を 518px へ縮小するため、
+# 旧 upscale / rembg ステップは不要となり削除した。
+# アップロード画像はそのまま TRELLIS に渡す。
 STEPS = [
     ("upload",  None),
-    ("upscale", upscale.run),
-    ("rembg",   rembg_service.run),
     ("trellis", trellis.run),
     ("blender", blender_post.run),
     ("godot",   godot_export.run),
@@ -48,9 +50,16 @@ async def run_pipeline(job: Job, input_path: Path, store: dict):
         _mark(job, step_id, StepStatus.running)
         _sync(job, store)
         try:
-            result_path = await fn(current_path, job)
-            current_path = result_path
-            _mark(job, step_id, StepStatus.done)
+            result = await fn(current_path, job)
+            if isinstance(result, StepResult):
+                current_path = result.path
+                if result.skipped:
+                    _mark(job, step_id, StepStatus.skipped, result.detail)
+                else:
+                    _mark(job, step_id, StepStatus.done, result.detail)
+            else:
+                current_path = result
+                _mark(job, step_id, StepStatus.done)
         except JobCancelled:
             _abort_cancelled(job, store, step_id)
             return
@@ -125,7 +134,7 @@ def _mark(job: Job, step_id: str, status: StepStatus, detail: str = ""):
                 s.detail = detail
             if status == StepStatus.running:
                 s.started_at = datetime.utcnow()
-            elif status in (StepStatus.done, StepStatus.error):
+            elif status in (StepStatus.done, StepStatus.error, StepStatus.skipped):
                 s.finished_at = datetime.utcnow()
             break
 
@@ -139,4 +148,5 @@ def _sync(job: Job, store: dict):
 
 
 def _calc_progress(step_id: str) -> int:
-    return {"upscale": 25, "rembg": 40, "trellis": 75, "blender": 88, "godot": 100}.get(step_id, 0)
+    # upload=10 は run_pipeline 冒頭で設定済み。残りステップで 10→100 を分配する。
+    return {"trellis": 80, "blender": 92, "godot": 100}.get(step_id, 0)

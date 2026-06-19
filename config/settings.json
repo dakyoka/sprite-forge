@@ -36,9 +36,6 @@
   "trellis_timeout_sec": 3600,
 
   "blender_exe": "",
-  "upscale_target_width": 2048,
-  "upscale_target_height": 2048,
-  "rembg_enabled": false,
   "cors_origins": [
     "http://localhost:3000",
     "http://localhost:3001",

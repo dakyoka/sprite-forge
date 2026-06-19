@@ -5,7 +5,7 @@
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
-export type StepStatus = "pending" | "running" | "done" | "error";
+export type StepStatus = "pending" | "running" | "done" | "error" | "skipped";
 export type JobStatus  = "queued" | "running" | "completed" | "failed" | "cancelled";
 
 export interface PipelineStep {
@@ -84,6 +84,44 @@ export async function listJobs(): Promise<Job[]> {
 /** キュー中/実行中ジョブを停止する。 */
 export async function cancelJob(jobId: string): Promise<Job> {
   const res = await fetch(`${BASE}/api/pipeline/${jobId}/cancel`, { method: "POST" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/** GPU テレメトリ(/api/gpu)。GPU 不在時は available:false を返す。 */
+export interface GpuInfo {
+  available:      boolean;
+  reason?:        string;
+  util_pct?:      number | null;
+  vram_used_mib?: number | null;
+  vram_total_mib?: number | null;
+  temp_c?:        number | null;
+}
+
+export async function getGpu(): Promise<GpuInfo> {
+  const res = await fetch(`${BASE}/api/gpu`);
+  if (!res.ok) return { available: false, reason: `HTTP ${res.status}` };
+  return res.json();
+}
+
+/** 実効設定(/api/settings)。GPU プロファイル解決後の読み取り専用ビュー。 */
+export interface EffectiveSettings {
+  gpu_preset:          string;
+  resolved_preset:     string;
+  vram_gb:             number | null;
+  trellis_steps:       number;
+  texture_size:        number;
+  bake_mode:           string;
+  fp16:                boolean;
+  trellis_model:       string;
+  trellis_timeout_sec: number;
+  godot_export_path:   string;
+  blender_exe:         string | null;
+  output_dir:          string;
+}
+
+export async function getSettings(): Promise<EffectiveSettings> {
+  const res = await fetch(`${BASE}/api/settings`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

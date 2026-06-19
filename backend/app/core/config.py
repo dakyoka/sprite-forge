@@ -53,9 +53,6 @@ class Settings(BaseModel):
     trellis_timeout_sec: int = 3600
 
     blender_exe: str = ""
-    upscale_target_width: int = 2048
-    upscale_target_height: int = 2048
-    rembg_enabled: bool = False  # 背景除去済み画像を使う場合は False のまま
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://localhost:3001",

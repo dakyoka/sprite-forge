@@ -14,6 +14,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.models.job import Job
+from app.services.step_result import StepResult
 
 _BLENDER_SCRIPT = Path(__file__).parent / "blender_post_script.py"
 
@@ -38,11 +39,14 @@ def find_blender() -> str | None:
     return None
 
 
-async def run(input_glb: Path, job: Job) -> Path:
+async def run(input_glb: Path, job: Job) -> StepResult:
     blender_exe = find_blender()
     if blender_exe is None:
-        _log(job, "Blender not found — skipping post-processing (origin/material adjustment)")
-        return input_glb
+        return StepResult(
+            path=input_glb,
+            skipped=True,
+            detail="Blender 未検出のため後処理をスキップしました",
+        )
 
     out_glb = input_glb.parent / f"{input_glb.stem}_processed.glb"
     cmd = [
@@ -57,14 +61,10 @@ async def run(input_glb: Path, job: Job) -> Path:
         subprocess.run, cmd, capture_output=True, text=True, timeout=120,
     )
     if proc.returncode != 0:
-        _log(job, f"Blender error (skipping): {proc.stderr[-400:]}")
-        return input_glb
+        return StepResult(
+            path=input_glb,
+            skipped=True,
+            detail=f"Blender エラーのため後処理をスキップ: {proc.stderr[-200:]}",
+        )
 
-    return out_glb
-
-
-def _log(job: Job, msg: str):
-    for s in job.steps:
-        if s.step_id == "blender":
-            s.detail = msg
-            break
+    return StepResult(path=out_glb, detail="原点/マテリアル調整 完了")

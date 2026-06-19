@@ -8,12 +8,11 @@ import HistoryPane    from "@/components/HistoryPane";
 import QueuePane      from "@/components/QueuePane";
 import GpuBar         from "@/components/GpuBar";
 import BackendStatus  from "@/components/BackendStatus";
+import SettingsPanel  from "@/components/SettingsPanel";
 import { startPipeline, listJobs, cancelJob, reorderQueue, type Job } from "@/lib/api";
 
 const PIPELINE_NODES = [
   { label: "画像読込",      color: "text-yellow-400", dot: "bg-yellow-400" },
-  { label: "アップスケール", color: "text-orange-400", dot: "bg-orange-400" },
-  { label: "背景除去",      color: "text-blue-400",   dot: "bg-blue-400"   },
   { label: "Trellis 3D",   color: "text-purple-400", dot: "bg-purple-400" },
   { label: "Blender 後処理", color: "text-teal-400",  dot: "bg-teal-400"   },
   { label: "Godot 書き出し", color: "text-green-400", dot: "bg-green-400"  },
@@ -24,6 +23,7 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobileTab,  setMobileTab]  = useState(0);
   const [error,      setError]      = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 全ジョブをポーリングする(キュー順を含む)
@@ -122,7 +122,9 @@ export default function Home() {
 
         <div className="ml-auto flex items-center gap-3">
           <BackendStatus />
-          <button className="text-[9px] font-bold uppercase tracking-wider text-neutral-500 border border-neutral-700 bg-neutral-800 px-2.5 py-1 rounded hover:text-white transition-colors">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="text-[9px] font-bold uppercase tracking-wider text-neutral-500 border border-neutral-700 bg-neutral-800 px-2.5 py-1 rounded hover:text-white transition-colors">
             ⚙ Config
           </button>
         </div>
@@ -234,6 +236,16 @@ export default function Home() {
             onSelect={(j) => setSelectedId(j.job_id)}
           />
         </aside>
+
+        {/* ── MOBILE SETTINGS PANE (タブ 3) ── */}
+        <aside className={`lg:hidden flex-1 bg-neutral-900 overflow-hidden ${mobileTab === 3 ? "flex flex-col" : "hidden"}`}>
+          <div className="h-8 min-h-8 bg-neutral-900 border-b border-neutral-800 flex items-center px-3 flex-shrink-0">
+            <span className="text-[9px] font-black uppercase tracking-widest text-yellow-400">⚙ 設定 (実効値)</span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 pb-20">
+            <SettingsPanel />
+          </div>
+        </aside>
       </div>
 
       {/* ── GPU 右下フローティング (PCのみ・控えめ表示) ── */}
@@ -241,6 +253,31 @@ export default function Home() {
         <p className="text-[8px] font-bold uppercase tracking-widest text-neutral-500 mb-2">GPU リソース</p>
         <GpuBar />
       </div>
+
+      {/* ── 設定モーダル (デスクトップ Config ボタン) ── */}
+      {showSettings && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setShowSettings(false)}
+        >
+          <div
+            className="bg-neutral-900 border border-neutral-700 rounded-lg w-full max-w-md max-h-[80vh] overflow-y-auto p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[11px] font-black uppercase tracking-widest text-yellow-400">⚙ 設定 (実効値)</span>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="text-neutral-500 hover:text-white text-sm leading-none px-1"
+                aria-label="閉じる"
+              >
+                ✕
+              </button>
+            </div>
+            <SettingsPanel />
+          </div>
+        </div>
+      )}
 
       {/* ── MOBILE NAV ── */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 h-14 bg-neutral-900 border-t border-neutral-800 flex z-50">
