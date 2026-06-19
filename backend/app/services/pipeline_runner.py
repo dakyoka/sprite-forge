@@ -102,6 +102,9 @@ def _mark(job: Job, step_id: str, status: StepStatus, detail: str = ""):
 def _sync(job: Job, store: dict):
     job.updated_at = datetime.utcnow()
     store[job.job_id] = job
+    # 更新のたびに永続化(再起動後も履歴が残るように)
+    from app.core import job_store
+    job_store.save()
 
 
 def _calc_progress(step_id: str) -> int:

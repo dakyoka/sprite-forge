@@ -3,18 +3,18 @@ POST /api/pipeline/start — 画像アップロードと同時にパイプライ
 画像をドロップしたらフロントエンドがこのエンドポイントを叩く。
 """
 import shutil
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from app.models.job import Job
 from app.services.pipeline_runner import run_pipeline
 from app.core.config import settings
+from app.core import job_store
 
 router = APIRouter()
 
-# インメモリジョブストア（将来 SQLite に移行可能）
-_jobs: dict[str, Job] = {}
+# ジョブストア(JSON 永続化)。他ルートもこの dict を共有する(再エクスポート)。
+_jobs = job_store.jobs
 
 
 @router.post("/start", response_model=Job)
@@ -27,6 +27,7 @@ async def start_pipeline(
 
     job = Job(filename=file.filename or "unknown.png")
     _jobs[job.job_id] = job
+    job_store.save()
 
     # 受け取った画像をtmpに保存
     tmp_dir = Path(settings.output_dir) / job.job_id
