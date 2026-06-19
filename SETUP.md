@@ -79,7 +79,7 @@ python -m venv .venv
 pip install -r requirements.txt
 
 # サーバー起動
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --reload-dir app --port 8000
 ```
 
 ターミナルに `Application startup complete.` と表示されれば OK です。

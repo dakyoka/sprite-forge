@@ -46,7 +46,7 @@ cp .env.example .env
 # 3. バックエンド起動
 cd backend
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --reload-dir app --port 8000
 
 # 4. フロントエンド起動 (別ターミナル)
 cd frontend

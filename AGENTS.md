@@ -52,7 +52,7 @@ SF_GODOT_EXPORT_PATH=
 
 ```powershell
 cd backend
-.\.venv\Scripts\uvicorn app.main:app --reload --port 8000
+.\.venv\Scripts\uvicorn app.main:app --reload --reload-dir app --port 8000
 ```
 
 `Application startup complete.` が出ることを確認してください。

@@ -105,7 +105,7 @@ Write-Host ""
 Write-Host "  Setup complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  How to start:" -ForegroundColor Cyan
-Write-Host "    Terminal 1: cd backend; .\.venv\Scripts\uvicorn app.main:app --reload --port 8000" -ForegroundColor White
+Write-Host "    Terminal 1: cd backend; .\.venv\Scripts\uvicorn app.main:app --reload --reload-dir app --port 8000" -ForegroundColor White
 Write-Host "    Terminal 2: cd frontend; npm run dev" -ForegroundColor White
 Write-Host "    Browser:    http://localhost:3000" -ForegroundColor White
 Write-Host ""
