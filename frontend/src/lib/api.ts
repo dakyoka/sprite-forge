@@ -32,6 +32,7 @@ export interface Job {
   created_at:  string;
   updated_at:  string;
   error_msg:   string | null;
+  favorite:    boolean;
 }
 
 /** GLB 配信 / ダウンロード用のバックエンド絶対 URL */
@@ -84,6 +85,23 @@ export async function listJobs(): Promise<Job[]> {
 /** キュー中/実行中ジョブを停止する。 */
 export async function cancelJob(jobId: string): Promise<Job> {
   const res = await fetch(`${BASE}/api/pipeline/${jobId}/cancel`, { method: "POST" });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+/** ジョブを履歴から削除する(出力ファイルもサーバ側で削除)。 */
+export async function deleteJob(jobId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/jobs/${jobId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await res.text());
+}
+
+/** お気に入りフラグを設定する。更新後のジョブを返す。 */
+export async function setFavorite(jobId: string, favorite: boolean): Promise<Job> {
+  const res = await fetch(`${BASE}/api/jobs/${jobId}/favorite`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ favorite }),
+  });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

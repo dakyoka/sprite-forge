@@ -9,7 +9,8 @@ import QueuePane      from "@/components/QueuePane";
 import GpuBar         from "@/components/GpuBar";
 import BackendStatus  from "@/components/BackendStatus";
 import SettingsPanel  from "@/components/SettingsPanel";
-import { startPipeline, listJobs, cancelJob, reorderQueue, type Job } from "@/lib/api";
+import { startPipeline, listJobs, cancelJob, reorderQueue, deleteJob, setFavorite, type Job } from "@/lib/api";
+import { removeThumb } from "@/lib/thumbCache";
 
 const PIPELINE_NODES = [
   { label: "画像読込",      color: "text-yellow-400", dot: "bg-yellow-400" },
@@ -65,6 +66,33 @@ export default function Home() {
       await cancelJob(jobId);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      poll();
+    }
+  }, [poll]);
+
+  const handleDelete = useCallback(async (jobId: string) => {
+    // 楽観更新: 即リストから除外 + サムネイルキャッシュを破棄
+    setJobs((prev) => prev.filter((j) => j.job_id !== jobId));
+    setSelectedId((cur) => (cur === jobId ? null : cur));
+    removeThumb(jobId);
+    try {
+      await deleteJob(jobId);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      poll();
+    }
+  }, [poll]);
+
+  const handleToggleFavorite = useCallback(async (job: Job) => {
+    const next = !job.favorite;
+    // 楽観更新
+    setJobs((prev) => prev.map((j) => (j.job_id === job.job_id ? { ...j, favorite: next } : j)));
+    try {
+      await setFavorite(job.job_id, next);
+    } catch {
+      // 失敗時はポーリングで実値へ戻す
     } finally {
       poll();
     }
@@ -234,6 +262,8 @@ export default function Home() {
             currentJob={running}
             selectedId={selectedId}
             onSelect={(j) => setSelectedId(j.job_id)}
+            onDelete={handleDelete}
+            onToggleFavorite={handleToggleFavorite}
           />
         </aside>
 
