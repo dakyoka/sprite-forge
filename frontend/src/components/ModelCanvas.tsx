@@ -1,11 +1,14 @@
 "use client";
-import { Suspense, useEffect, useLayoutEffect, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
-import { Environment, Grid, Html, OrbitControls, useGLTF } from "@react-three/drei";
+import { Environment, Html, OrbitControls, useGLTF } from "@react-three/drei";
+import { EffectComposer, SelectiveBloom, ToneMapping } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { hdriFor, type EnvId } from "./environments";
+import WaveGrid from "./WaveGrid";
 
 export interface ModelCanvasProps {
   /** GLB の配信 URL */
@@ -23,11 +26,16 @@ export interface ModelCanvasProps {
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
 }
 
-/** トーンマッピング露出をレンダラへ反映する(値が変わるたびに更新)。 */
+/**
+ * トーンマッピング露出をレンダラへ反映する。トーンマッピング自体は
+ * EffectComposer の <ToneMapping>(ACES)が行うため、レンダラ側は NoToneMapping
+ * にして二重適用を防ぎ、露出値(toneMappingExposure)だけ反映する。
+ * ACES の GLSL は toneMappingExposure を乗算するので、露出スライダーは引き続き効く。
+ */
 function ExposureUpdater({ exposure }: { exposure: number }) {
   const gl = useThree((s) => s.gl);
   useEffect(() => {
-    gl.toneMapping = THREE.ACESFilmicToneMapping;
+    gl.toneMapping = THREE.NoToneMapping;
     gl.toneMappingExposure = exposure;
   }, [gl, exposure]);
   return null;
@@ -186,12 +194,13 @@ export default function ModelCanvas({
   const hdri = hdriFor(envId);
   const isStudio = envId === "studio" || !hdri;
   const [modelRadius, setModelRadius] = useState(1);
+  const gridRef = useRef<THREE.Mesh>(null);
 
   return (
     <Canvas
       dpr={[1, 2]}
       camera={{ position: [3, 2, 4], fov: 45, near: 0.01, far: 1000 }}
-      gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
+      gl={{ antialias: true }}
       style={{ width: "100%", height: "100%" }}
     >
       <ExposureUpdater exposure={exposure} />
@@ -213,25 +222,11 @@ export default function ModelCanvas({
         )}
       </Suspense>
 
-      {/* 床グリッド(XZ 平面)。全環境で表示する。drei Grid はライン以外が
-          透明な半透明マテリアルなので、地面投影 HDRI の上に重ねても背景が透ける。
-          side=DoubleSide で下から覗いたときも消えずに見える。セル色は明るめの
-          グレーにして、暗いスタジオ背景でも明るい HDRI 地面でも視認できるようにする。
-          サイズ/フェードはモデル外接半径に比例させ、スケール非依存にする。 */}
-      <Grid
-        position={[0, 0, 0]}
-        infiniteGrid
-        cellSize={modelRadius * 0.5}
-        cellThickness={0.6}
-        cellColor="#9ca3af"
-        sectionSize={modelRadius * 2.5}
-        sectionThickness={1.1}
-        sectionColor="#7c5cff"
-        fadeDistance={modelRadius * 40}
-        fadeStrength={1.5}
-        followCamera={false}
-        side={THREE.DoubleSide}
-      />
+      {/* 床グリッド(XZ 平面)。Round 2 の性質(半透明・両面・地面投影 HDRI の上に
+          重ねて透ける)を保ちつつ、独自シェーダで「外へ流れる発光波」を足す。
+          波のクレストは HDR 値なので、下の SelectiveBloom(このグリッドだけを選択)で
+          光って見える。 */}
+      <WaveGrid ref={gridRef} radius={modelRadius} />
 
       <Suspense fallback={<CanvasLoader />}>
         <Model url={url} wireframe={wireframe} controlsRef={controlsRef} onRadius={setModelRadius} />
@@ -244,7 +239,30 @@ export default function ModelCanvas({
         dampingFactor={0.08}
         autoRotate={autoRotate}
         autoRotateSpeed={2.0}
+        // 左ドラッグ=回転、中ボタン/右ボタンのドラッグ=パン。
+        // (中ボタンを押すだけでは何も起きず、ドラッグして初めてパンする = OrbitControls の標準挙動)
+        mouseButtons={{
+          LEFT: THREE.MOUSE.ROTATE,
+          MIDDLE: THREE.MOUSE.PAN,
+          RIGHT: THREE.MOUSE.PAN,
+        }}
       />
+
+      {/* グリッドの発光波だけを選択的にブルームさせる。HDRI 背景は選択対象外なので
+          白飛びしない。トーンマッピング(ACES)はここで行う(EffectComposer は
+          レンダラ側のトーンマッピングを無効化するため、最後に必ず適用する)。 */}
+      <EffectComposer>
+        <SelectiveBloom
+          selection={gridRef as unknown as RefObject<THREE.Object3D>}
+          ignoreBackground
+          luminanceThreshold={1.0}
+          luminanceSmoothing={0.2}
+          intensity={1.5}
+          radius={0.7}
+          mipmapBlur
+        />
+        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+      </EffectComposer>
     </Canvas>
   );
 }
