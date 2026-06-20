@@ -27,17 +27,36 @@ export interface ModelCanvasProps {
 }
 
 /**
- * トーンマッピング露出をレンダラへ反映する。トーンマッピング自体は
- * EffectComposer の <ToneMapping>(ACES)が行うため、レンダラ側は NoToneMapping
- * にして二重適用を防ぎ、露出値(toneMappingExposure)だけ反映する。
- * ACES の GLSL は toneMappingExposure を乗算するので、露出スライダーは引き続き効く。
+ * iOS/iPadOS や低性能 GPU を検出する。これらの端末では EffectComposer +
+ * SelectiveBloom + float レンダーターゲットが WebGL コンテキストを失敗/クラッシュ
+ * させることがある(iPad Safari は float レンダーターゲット系の制約が厳しい)。
+ * 検出時はブルーム(ポストプロセス)を無効化して素のビューアを確実に動かす。
  */
-function ExposureUpdater({ exposure }: { exposure: number }) {
+function detectLowPowerGfx(): boolean {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  // iPadOS 13+ は UA 上 "MacIntel" を名乗るため、タッチ点数でも判定する。
+  const iOS =
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+  const small = window.matchMedia?.("(max-width: 1279px)").matches ?? false;
+  return iOS || (coarse && small);
+}
+
+/**
+ * トーンマッピング露出をレンダラへ反映する。
+ * - bloom 有効時: トーンマッピングは EffectComposer の <ToneMapping>(ACES)が行うため
+ *   レンダラ側は NoToneMapping にして二重適用を防ぐ。
+ * - bloom 無効時(iOS など): EffectComposer が無いので、レンダラ側で ACES を行う。
+ * どちらも toneMappingExposure を反映するので露出スライダーは効く(ACES は露出を乗算)。
+ */
+function ExposureUpdater({ exposure, bloom }: { exposure: number; bloom: boolean }) {
   const gl = useThree((s) => s.gl);
   useEffect(() => {
-    gl.toneMapping = THREE.NoToneMapping;
+    gl.toneMapping = bloom ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
     gl.toneMappingExposure = exposure;
-  }, [gl, exposure]);
+  }, [gl, exposure, bloom]);
   return null;
 }
 
@@ -80,11 +99,12 @@ function StudioEnvironment({ intensity }: { intensity: number }) {
  * おおむね 1 ユニット規模だが、将来サイズが変わっても破綻しないよう相対値にする。
  * `scale`(投影ドーム半径)はカメラ far(=radius*100, Model 側で設定)未満に保つ。
  */
-function HdriEnvironment({ files, intensity, radius }: { files: string; intensity: number; radius: number }) {
+function HdriEnvironment({ files, intensity, radius, resolution }: { files: string; intensity: number; radius: number; resolution: number }) {
   const r = radius > 0 ? radius : 1;
   return (
     <Environment
       files={files}
+      resolution={resolution}
       environmentIntensity={intensity}
       ground={{ height: r * 3, radius: r * 24, scale: r * 50 }}
     />
@@ -196,6 +216,11 @@ export default function ModelCanvas({
   const [modelRadius, setModelRadius] = useState(1);
   const gridRef = useRef<THREE.Mesh>(null);
 
+  // iOS/低性能 GPU ではブルーム(ポストプロセス)を切って素のビューアを確実に動かす。
+  // 一度マウント時に判定して以後固定する。
+  const [bloom] = useState(() => !detectLowPowerGfx());
+  const hdriResolution = bloom ? 512 : 256;
+
   return (
     <Canvas
       dpr={[1, 2]}
@@ -203,7 +228,7 @@ export default function ModelCanvas({
       gl={{ antialias: true }}
       style={{ width: "100%", height: "100%" }}
     >
-      <ExposureUpdater exposure={exposure} />
+      <ExposureUpdater exposure={exposure} bloom={bloom} />
 
       {/* 直接光。IBL(環境マップ)の強さは環境光スライダーで下げられるので、
           キーライトを動かすと反射ハイライトと陰影に確実に効く。 */}
@@ -218,7 +243,7 @@ export default function ModelCanvas({
         {isStudio ? (
           <StudioEnvironment intensity={ambient} />
         ) : (
-          <HdriEnvironment files={hdri!} intensity={ambient} radius={modelRadius} />
+          <HdriEnvironment files={hdri!} intensity={ambient} radius={modelRadius} resolution={hdriResolution} />
         )}
       </Suspense>
 
@@ -250,19 +275,23 @@ export default function ModelCanvas({
 
       {/* グリッドの発光波だけを選択的にブルームさせる。HDRI 背景は選択対象外なので
           白飛びしない。トーンマッピング(ACES)はここで行う(EffectComposer は
-          レンダラ側のトーンマッピングを無効化するため、最後に必ず適用する)。 */}
-      <EffectComposer>
-        <SelectiveBloom
-          selection={gridRef as unknown as RefObject<THREE.Object3D>}
-          ignoreBackground
-          luminanceThreshold={1.0}
-          luminanceSmoothing={0.2}
-          intensity={1.5}
-          radius={0.7}
-          mipmapBlur
-        />
-        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-      </EffectComposer>
+          レンダラ側のトーンマッピングを無効化するため、最後に必ず適用する)。
+          iOS/低性能 GPU では EffectComposer ごと省略し、トーンマッピングは
+          ExposureUpdater がレンダラ側 ACES で行う(WebGL クラッシュ回避)。 */}
+      {bloom && (
+        <EffectComposer>
+          <SelectiveBloom
+            selection={gridRef as unknown as RefObject<THREE.Object3D>}
+            ignoreBackground
+            luminanceThreshold={1.0}
+            luminanceSmoothing={0.2}
+            intensity={1.5}
+            radius={0.7}
+            mipmapBlur
+          />
+          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+        </EffectComposer>
+      )}
     </Canvas>
   );
 }

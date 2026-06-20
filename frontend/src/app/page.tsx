@@ -132,7 +132,7 @@ export default function Home() {
         <span className="text-[9px] uppercase tracking-widest text-neutral-600 hidden sm:block">2D スプライト → 3D モデル 全自動パイプライン</span>
 
         {/* pipeline breadcrumb */}
-        <div className="hidden lg:flex items-center mx-auto gap-0.5">
+        <div className="hidden xl:flex items-center mx-auto gap-0.5">
           {PIPELINE_NODES.map((n, i) => {
             const step = selectedJob?.steps[i];
             const isLit = step?.status === "running";
@@ -159,10 +159,13 @@ export default function Home() {
       </header>
 
       {/* ── BODY ── */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* モバイル/タブレット(< xl)では下部ナビ(h-14)のぶん余白を確保し、最下部の
+          コンテンツがナビに隠れないようにする。xl 以上(デスクトップ)では余白なし。 */}
+      <div className="flex flex-1 overflow-hidden pb-14 xl:pb-0">
 
         {/* ── LEFT PANE ── */}
-        <aside className={`w-[400px] min-w-[400px] bg-neutral-900 border-r border-neutral-800 flex flex-col overflow-hidden ${mobileTab !== 0 ? "hidden lg:flex" : "flex"}`}>
+        {/* < xl では単一ペインを全幅表示、xl 以上で固定幅の 3 ペインに切り替える。 */}
+        <aside className={`w-full xl:w-[400px] xl:min-w-[400px] bg-neutral-900 border-r border-neutral-800 flex flex-col overflow-hidden ${mobileTab !== 0 ? "hidden xl:flex" : "flex"}`}>
           <div className="h-8 min-h-8 bg-neutral-900/80 border-b border-neutral-800 flex items-center px-3 gap-2 flex-shrink-0">
             <span className="text-[9px] font-black uppercase tracking-widest text-yellow-400">◈ Generation</span>
           </div>
@@ -233,7 +236,7 @@ export default function Home() {
         </aside>
 
         {/* ── CENTER PANE ── */}
-        <main className={`flex-1 bg-neutral-950 flex flex-col overflow-hidden min-w-0 ${mobileTab !== 1 ? "hidden lg:flex" : "flex"}`}>
+        <main className={`flex-1 bg-neutral-950 flex flex-col overflow-hidden min-w-0 ${mobileTab !== 1 ? "hidden xl:flex" : "flex"}`}>
           <div className="flex-1 overflow-hidden">
             <Viewer3D job={selectedJob} />
           </div>
@@ -256,7 +259,7 @@ export default function Home() {
         </main>
 
         {/* ── RIGHT PANE ── */}
-        <aside className={`w-[348px] min-w-[348px] bg-neutral-900 border-l border-neutral-800 overflow-hidden ${mobileTab !== 2 ? "hidden lg:flex lg:flex-col" : "flex flex-col"}`}>
+        <aside className={`w-full xl:w-[348px] xl:min-w-[348px] bg-neutral-900 border-l border-neutral-800 overflow-hidden ${mobileTab !== 2 ? "hidden xl:flex xl:flex-col" : "flex flex-col"}`}>
           <HistoryPane
             jobs={history}
             currentJob={running}
@@ -268,7 +271,7 @@ export default function Home() {
         </aside>
 
         {/* ── MOBILE SETTINGS PANE (タブ 3) ── */}
-        <aside className={`lg:hidden flex-1 bg-neutral-900 overflow-hidden ${mobileTab === 3 ? "flex flex-col" : "hidden"}`}>
+        <aside className={`xl:hidden flex-1 bg-neutral-900 overflow-hidden ${mobileTab === 3 ? "flex flex-col" : "hidden"}`}>
           <div className="h-8 min-h-8 bg-neutral-900 border-b border-neutral-800 flex items-center px-3 flex-shrink-0">
             <span className="text-[9px] font-black uppercase tracking-widest text-yellow-400">⚙ 設定 (実効値)</span>
           </div>
@@ -278,8 +281,8 @@ export default function Home() {
         </aside>
       </div>
 
-      {/* ── GPU 右下フローティング (PCのみ・控えめ表示) ── */}
-      <div className="hidden lg:block fixed bottom-0 right-0 z-40 w-[348px] bg-neutral-900/95 backdrop-blur border-t border-l border-neutral-800 rounded-tl-lg px-4 py-3 shadow-xl">
+      {/* ── GPU 右下フローティング (デスクトップのみ・控えめ表示) ── */}
+      <div className="hidden xl:block fixed bottom-0 right-0 z-40 w-[348px] bg-neutral-900/95 backdrop-blur border-t border-l border-neutral-800 rounded-tl-lg px-4 py-3 shadow-xl">
         <p className="text-[8px] font-bold uppercase tracking-widest text-neutral-500 mb-2">GPU リソース</p>
         <GpuBar />
       </div>
@@ -310,7 +313,7 @@ export default function Home() {
       )}
 
       {/* ── MOBILE NAV ── */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 h-14 bg-neutral-900 border-t border-neutral-800 flex z-50">
+      <nav className="xl:hidden fixed bottom-0 left-0 right-0 h-14 bg-neutral-900 border-t border-neutral-800 flex z-50">
         {[["◈", "生成"], ["▣", "3D"], ["≡", "履歴"], ["⚙", "設定"]].map(([icon, label], i) => (
           <button key={i} onClick={() => setMobileTab(i)}
             className={`flex-1 flex flex-col items-center justify-center gap-1 transition-colors ${mobileTab === i ? "text-yellow-400" : "text-neutral-600"}`}>

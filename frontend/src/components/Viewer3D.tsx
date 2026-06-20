@@ -6,6 +6,7 @@ import { outputUrl, inputUrl } from "@/lib/api";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { ENVIRONMENTS, DEFAULT_ENV, type EnvId } from "./environments";
 import WaveLoader from "./WaveLoader";
+import ErrorBoundary from "./ErrorBoundary";
 
 interface Props {
   job: Job | null;
@@ -179,7 +180,7 @@ export default function Viewer3D({ job }: Props) {
                 }`}
               >
                 <span
-                  className={`block w-full h-full overflow-hidden rounded-full ring-1 shadow-md ${
+                  className={`pointer-events-none block w-full h-full overflow-hidden rounded-full ring-1 shadow-md ${
                     active
                       ? "ring-2 ring-purple-400 shadow-purple-500/40"
                       : "ring-black/40 group-hover:ring-white/40"
@@ -234,19 +235,41 @@ export default function Viewer3D({ job }: Props) {
         </div>
       )}
 
-      {/* completed — react-three-fiber による実 3D 表示 */}
+      {/* completed — react-three-fiber による実 3D 表示。
+          iPad Safari など WebGL/ポストプロセスが失敗しうる環境では、Canvas のマウント/
+          描画例外が React ツリー全体を巻き込んで操作不能になりうる。ErrorBoundary で
+          包み、失敗時はダウンロード導線付きのフォールバックを出して周囲 UI を生かす。 */}
       {isCompleted && job && (
-        <ModelCanvas
+        <ErrorBoundary
           key={job.job_id}
-          url={outputUrl(job.job_id)}
-          autoRotate={autoRotate}
-          wireframe={wireframe}
-          ambient={ambient}
-          keyLight={keyLight}
-          exposure={exposure}
-          envId={envId}
-          controlsRef={controlsRef}
-        />
+          fallback={
+            <div className="relative z-10 flex flex-col items-center gap-3 text-center px-8">
+              <div className="text-5xl text-neutral-600">▣</div>
+              <p className="text-[10px] text-neutral-400 uppercase tracking-wider leading-relaxed">
+                3D プレビューを表示できませんでした<br />
+                (この端末の WebGL 制限の可能性があります)
+              </p>
+              <a
+                href={outputUrl(job.job_id)}
+                download
+                className={`${chipBase} bg-purple-400/12 border-purple-400/40 text-purple-300 hover:bg-purple-400/20 hover:text-purple-200`}
+              >
+                GLB をダウンロード ↓
+              </a>
+            </div>
+          }
+        >
+          <ModelCanvas
+            url={outputUrl(job.job_id)}
+            autoRotate={autoRotate}
+            wireframe={wireframe}
+            ambient={ambient}
+            keyLight={keyLight}
+            exposure={exposure}
+            envId={envId}
+            controlsRef={controlsRef}
+          />
+        </ErrorBoundary>
       )}
 
       {/* failed state */}

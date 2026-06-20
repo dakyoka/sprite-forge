@@ -14,9 +14,9 @@ interface Props {
 }
 
 /**
- * 実行中ジョブ(先頭・ドラッグ不可)＋ キュー中ジョブ(ドラッグで並び替え)を表示する。
- * 並び替えはネイティブ HTML5 drag-and-drop のみ(外部依存なし)。
- * ドラッグ中はホバー先へ「よけて」リアルタイムに並びが入れ替わる(ライブプレビュー)。
+ * 実行中ジョブ(先頭・ドラッグ不可)＋ キュー中ジョブ(並び替え可)を表示する。
+ * 並び替え: マウスはネイティブ HTML5 drag-and-drop(ライブプレビュー)、
+ * タッチ端末(iPad)はドラッグが効かないため ▲▼ ボタンで 1 つずつ移動できる。
  */
 export default function QueuePane({ running, queued, selectedId, onSelect, onCancel, onReorder }: Props) {
   const [order, setOrder] = useState<string[]>(() => queued.map((j) => j.job_id));
@@ -46,6 +46,20 @@ export default function QueuePane({ running, queued, selectedId, onSelect, onCan
   const handleDragEnd = () => {
     if (dragId) onReorder(order);
     setDragId(null);
+  };
+
+  // タッチ端末(iPad)向けの並び替えフォールバック。HTML5 drag-and-drop は
+  // タッチで動かないため、▲▼ ボタンで 1 つずつ移動できるようにする。
+  const move = (jobId: string, dir: -1 | 1) => {
+    setOrder((prev) => {
+      const cur = [...prev];
+      const from = cur.indexOf(jobId);
+      const to = from + dir;
+      if (from === -1 || to < 0 || to >= cur.length) return prev;
+      [cur[from], cur[to]] = [cur[to], cur[from]];
+      onReorder(cur);
+      return cur;
+    });
   };
 
   const removeNow = (jobId: string) => {
@@ -105,13 +119,39 @@ export default function QueuePane({ running, queued, selectedId, onSelect, onCan
             <p className="text-[11px] font-semibold truncate">{j.filename}</p>
             <p className="text-[9px] text-neutral-600 mt-0.5">待機中</p>
           </div>
-          <span className="text-neutral-700 text-[11px] flex-shrink-0 select-none">⋮⋮</span>
+          {/* タッチ端末向けの並び替え(▲▼)。マウスではドラッグも引き続き使える。 */}
+          <div className="flex flex-col flex-shrink-0">
+            <button
+              type="button"
+              draggable={false}
+              disabled={i === 0}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); move(j.job_id, -1); }}
+              className="text-[9px] leading-none text-neutral-500 hover:text-yellow-400 disabled:opacity-20 disabled:hover:text-neutral-500 px-1 py-0.5 transition-colors"
+              title="上へ"
+              aria-label="上へ移動"
+            >
+              ▲
+            </button>
+            <button
+              type="button"
+              draggable={false}
+              disabled={i === orderedJobs.length - 1}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); move(j.job_id, 1); }}
+              className="text-[9px] leading-none text-neutral-500 hover:text-yellow-400 disabled:opacity-20 disabled:hover:text-neutral-500 px-1 py-0.5 transition-colors"
+              title="下へ"
+              aria-label="下へ移動"
+            >
+              ▼
+            </button>
+          </div>
           <button
             type="button"
             draggable={false}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); removeNow(j.job_id); }}
-            className="text-[12px] font-bold text-neutral-500 hover:text-red-400 px-1.5 py-0.5 flex-shrink-0 transition-colors"
+            className="text-[12px] font-bold text-neutral-500 hover:text-red-400 px-1.5 py-1 flex-shrink-0 transition-colors"
             title="キューから削除"
           >
             ✕
