@@ -53,3 +53,4 @@ class Job(BaseModel):
     created_at:  datetime = Field(default_factory=datetime.utcnow)
     updated_at:  datetime = Field(default_factory=datetime.utcnow)
     error_msg:   str | None = None
+    favorite:    bool = False  # 履歴のお気に入り(ユーザーが手動でトグル)
