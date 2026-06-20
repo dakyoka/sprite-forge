@@ -3,7 +3,21 @@
  * 型定義は backend/app/models/job.py と同期すること（SSOT）
  */
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+/**
+ * バックエンドのベース URL。
+ * - NEXT_PUBLIC_API_BASE_URL があれば最優先(明示オーバーライド)。
+ * - 無ければ「ページを配信したホスト」を実行時に使う。別デバイスが
+ *   http://<このPCのIP>:3000 で開いた場合、同じホストの :8000 を叩くので
+ *   履歴などが正しく共有される(以前は localhost 固定で、別デバイスは自分の
+ *   localhost を見て何も表示できなかった)。
+ * - SSR(window が無い)時は安全なローカルへフォールバック。実際の API 呼び出しは
+ *   すべてクライアント側で行われるため、この値は使われない。
+ */
+const BASE =
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  (typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : "http://localhost:8000");
 
 export type StepStatus = "pending" | "running" | "done" | "error" | "skipped";
 export type JobStatus  = "queued" | "running" | "completed" | "failed" | "cancelled";

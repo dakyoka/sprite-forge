@@ -104,9 +104,13 @@ export async function POST() {
   }
 
   const run = (async () => {
+    // --host 0.0.0.0 で全 NIC に bind し、Tailscale/LAN の別デバイスから
+    // http://<このPCのIP>:8000 へ到達できるようにする(127.0.0.1 だとループ
+    // バックのみで他デバイスから繋がらず、履歴が共有されない原因になる)。
+    // ローカルのヘルス/プリフライト確認は引き続き 127.0.0.1 を使う(同一マシン)。
     const child = spawn(
       venvPython,
-      ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(BACKEND_PORT), "--reload", "--reload-dir", "app"],
+      ["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", String(BACKEND_PORT), "--reload", "--reload-dir", "app"],
       { cwd: dir, detached: true, stdio: "ignore", windowsHide: true },
     );
     child.unref();
