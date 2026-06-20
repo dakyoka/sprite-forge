@@ -1,24 +1,11 @@
 "use client";
-import { Suspense, useEffect, useLayoutEffect } from "react";
+import { Suspense, useEffect, useLayoutEffect, useState } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import { Environment, Grid, Html, OrbitControls, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import type { EnvId } from "./environments";
-// HDRI はオフライン同梱(@pmndrs/assets, data URI)。CDN 不要。
-import skyHdri from "@pmndrs/assets/hdri/sky.exr";
-import sunsetHdri from "@pmndrs/assets/hdri/sunset.exr";
-import nightHdri from "@pmndrs/assets/hdri/night.exr";
-import cityHdri from "@pmndrs/assets/hdri/city.exr";
-
-// studio 以外の環境に対応する HDRI(equirectangular data URI)。
-const HDRI_FILES: Partial<Record<EnvId, string>> = {
-  sky: skyHdri,
-  sunset: sunsetHdri,
-  night: nightHdri,
-  city: cityHdri,
-};
+import { hdriFor, type EnvId } from "./environments";
 
 export interface ModelCanvasProps {
   /** GLB の配信 URL */
@@ -75,19 +62,44 @@ function StudioEnvironment({ intensity }: { intensity: number }) {
 }
 
 /**
+ * HDRI 環境を地面投影(ground projection)付きで適用する。
+ * equirect をそのまま無限遠の球に貼ると、HDRI の地面/地平線がデバッグ
+ * グリッド(y=0 平面)と食い違って「地面がめり込む」ように見える。drei の
+ * `ground` を使うと HDRI 下半球が y=0 付近の連続した地面として投影され、
+ * モデルがその上に立っているように見える(グリッドは非表示にする)。
+ *
+ * ground の各パラメータはモデル外接半径 `radius` に比例させる。TRELLIS 出力は
+ * おおむね 1 ユニット規模だが、将来サイズが変わっても破綻しないよう相対値にする。
+ * `scale`(投影ドーム半径)はカメラ far(=radius*100, Model 側で設定)未満に保つ。
+ */
+function HdriEnvironment({ files, intensity, radius }: { files: string; intensity: number; radius: number }) {
+  const r = radius > 0 ? radius : 1;
+  return (
+    <Environment
+      files={files}
+      environmentIntensity={intensity}
+      ground={{ height: r * 3, radius: r * 24, scale: r * 50 }}
+    />
+  );
+}
+
+/**
  * GLB を読み込み、バウンディングボックス中心を原点 XZ に合わせ、
  * 最下端を y=0 に落として「床に立つ」ように配置する。
  * 初回ロード時にカメラと OrbitControls を自動フレーミングし、保存状態を更新する
- * (Reset ボタンはこの保存状態へ戻る)。
+ * (Reset ボタンはこの保存状態へ戻る)。外接半径を `onRadius` で親へ通知し、
+ * HDRI の地面投影スケールに使う。
  */
 function Model({
   url,
   wireframe,
   controlsRef,
+  onRadius,
 }: {
   url: string;
   wireframe: boolean;
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
+  onRadius: (r: number) => void;
 }) {
   const { scene } = useGLTF(url);
   const camera = useThree((s) => s.camera);
@@ -121,18 +133,25 @@ function Model({
       controls.update();
       controls.saveState();
     }
-  }, [scene, camera, controlsRef]);
 
-  // ワイヤーフレームのトグル(全マテリアルを走査して反映)
+    onRadius(radius);
+  }, [scene, camera, controlsRef, onRadius]);
+
+  // マテリアル設定: ワイヤーフレームのトグル + 両面描画。
+  // TRELLIS 出力は単一シェルのサーフェスで、既定の FrontSide だと裏向きの面が
+  // カリングされて「穴が開いている/破れている」ように見える。DoubleSide にすると
+  // 内側からも面が描画され、見かけ上の穴の大半が解消する(実ジオメトリの穴とは別問題)。
   useEffect(() => {
     scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       if (!mesh.isMesh) return;
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const mat of materials) {
-        if (mat && "wireframe" in mat) {
-          (mat as THREE.MeshStandardMaterial).wireframe = wireframe;
-        }
+        if (!mat) continue;
+        const m = mat as THREE.Material & { wireframe?: boolean };
+        m.side = THREE.DoubleSide;
+        if ("wireframe" in m) m.wireframe = wireframe;
+        m.needsUpdate = true;
       }
     });
   }, [scene, wireframe]);
@@ -164,7 +183,10 @@ export default function ModelCanvas({
   envId,
   controlsRef,
 }: ModelCanvasProps) {
-  const hdri = HDRI_FILES[envId];
+  const hdri = hdriFor(envId);
+  const isStudio = envId === "studio" || !hdri;
+  const [modelRadius, setModelRadius] = useState(1);
+
   return (
     <Canvas
       dpr={[1, 2]}
@@ -180,39 +202,36 @@ export default function ModelCanvas({
       <directionalLight position={[5, 8, 5]} intensity={keyLight} castShadow />
       <directionalLight position={[-6, 4, -4]} intensity={keyLight * 0.25} />
 
-      {/* 環境(IBL/背景)。studio は中立グレー+ダーク背景、それ以外は HDRI を
-          環境マップ兼背景に使い「その環境の中」にモデルを置く。
-          environmentIntensity は環境光スライダー(ambient)に連動させて応答させる。 */}
+      {/* 環境(IBL/背景)。studio は中立グレー+ダーク背景+グリッド、それ以外は
+          HDRI を地面投影付きで「その環境の中」に置く(グリッドは非表示)。
+          environmentIntensity は環境光スライダー(ambient)に連動させる。 */}
       <Suspense fallback={null}>
-        {envId === "studio" || !hdri ? (
+        {isStudio ? (
           <StudioEnvironment intensity={ambient} />
         ) : (
-          <Environment
-            files={hdri}
-            background
-            backgroundIntensity={1}
-            environmentIntensity={ambient}
-          />
+          <HdriEnvironment files={hdri!} intensity={ambient} radius={modelRadius} />
         )}
       </Suspense>
 
-      {/* 3D の床グリッド(XZ 平面・遠近に従う) */}
-      <Grid
-        position={[0, 0, 0]}
-        infiniteGrid
-        cellSize={0.5}
-        cellThickness={0.6}
-        cellColor="#1f2937"
-        sectionSize={2.5}
-        sectionThickness={1.1}
-        sectionColor="#7c5cff"
-        fadeDistance={40}
-        fadeStrength={1.5}
-        followCamera={false}
-      />
+      {/* 3D の床グリッド(XZ 平面)。HDRI 環境では地面投影と食い違うため隠す。 */}
+      {isStudio && (
+        <Grid
+          position={[0, 0, 0]}
+          infiniteGrid
+          cellSize={0.5}
+          cellThickness={0.6}
+          cellColor="#1f2937"
+          sectionSize={2.5}
+          sectionThickness={1.1}
+          sectionColor="#7c5cff"
+          fadeDistance={40}
+          fadeStrength={1.5}
+          followCamera={false}
+        />
+      )}
 
       <Suspense fallback={<CanvasLoader />}>
-        <Model url={url} wireframe={wireframe} controlsRef={controlsRef} />
+        <Model url={url} wireframe={wireframe} controlsRef={controlsRef} onRadius={setModelRadius} />
       </Suspense>
 
       <OrbitControls

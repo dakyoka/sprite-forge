@@ -20,6 +20,9 @@ const ModelCanvas = dynamic(() => import("./ModelCanvas"), {
   ),
 });
 
+// 環境切り替えのクロム球サムネイル(r3f)。クライアント専用。
+const EnvBall = dynamic(() => import("./EnvBall"), { ssr: false });
+
 function fmtNum(n: number | null): string {
   return n == null ? "—" : n.toLocaleString("en-US");
 }
@@ -156,7 +159,8 @@ export default function Viewer3D({ job }: Props) {
         </div>
       )}
 
-      {/* 環境切り替え(左端の縦ストリップ)。各環境を映した球サムネイルで一目で判別。 */}
+      {/* 環境切り替え(左端の縦ストリップ)。各環境を実際に映り込ませたクロム球
+          サムネイル(EnvBall)で一目で判別できる。 */}
       {isCompleted && (
         <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-20">
           {ENVIRONMENTS.map((env) => {
@@ -172,13 +176,14 @@ export default function Viewer3D({ job }: Props) {
                 }`}
               >
                 <span
-                  className={`block w-full h-full rounded-full ring-1 shadow-md ${
+                  className={`block w-full h-full overflow-hidden rounded-full ring-1 shadow-md ${
                     active
                       ? "ring-2 ring-purple-400 shadow-purple-500/40"
                       : "ring-black/40 group-hover:ring-white/40"
                   }`}
-                  style={{ backgroundImage: env.ball }}
-                />
+                >
+                  <EnvBall envId={env.id} />
+                </span>
                 <span className="pointer-events-none absolute left-10 top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-neutral-900/90 border border-neutral-700 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-neutral-200 opacity-0 group-hover:opacity-100 transition-opacity">
                   {env.label}
                 </span>
