@@ -5,10 +5,11 @@
 
   "gpu_preset": "auto",
   "_comment_fp16": "fp16 はサンプリング段のみ fp16 autocast を適用する意味 (decode は fp32 のまま)。全モデルの half 化ではない。",
+  "_comment_low_quality": "low(8GB)の品質上限は trellis_steps=6。steps=4 だと SLAT が収束不足でメッシュが断片化し穴が増える(boundary loops 19/開放エッジ89/浮き断片45)。steps=6 でほぼ解消(穴3/開放エッジ7/断片6)し、decode_slat も 8GB に収まり約2分で完了する。steps>=12 は decode_slat(fp32 flexicubes)が 8GB を超えて共有メモリへスピルし数十分かかる/事実上 OOM。texture_size>512 や bake_mode='opt' も 8GB では避ける。より大きな GPU では standard/high プリセットでさらに高品質化できる。",
   "gpu_presets": {
     "low": {
       "max_vram_gb": 10,
-      "trellis_steps": 4,
+      "trellis_steps": 6,
       "texture_size": 512,
       "bake_mode": "fast",
       "fp16": true
