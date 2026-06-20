@@ -121,11 +121,23 @@ def _run_streaming(cmd: list[str], env: dict, job: Job) -> None:
     - キャンセル要求が出ていたら TrellisCancelled を送出する。
     - 非ゼロ終了(非キャンセル)なら直近ログ tail を含む RuntimeError を送出する。
     """
+    # encoding/errors を明示する。これが無いと text=True は
+    # locale 既定エンコーディング + strict デコードになり、子プロセスの
+    # ネイティブ(C++)層が吐く非 UTF-8 バイト列(例: onnxruntime の CUDA
+    # provider ロード失敗メッセージ。ANSI エスケープ + cp932 の日本語 +
+    # 不正バイトを含む。rembg=背景除去を通る画像でのみ発生)を読んだ瞬間に
+    # reader スレッドが UnicodeDecodeError で死ぬ。すると誰もパイプを drain せず、
+    # 64KB のパイプバッファが満杯になった時点で子の次の print が永久ブロックし、
+    # GPU も CPU も使わないまま「生成中のまま固まる」→ タイムアウトしていた
+    # (背景透過済み PNG は rembg を通らずこのエラーを出さないため再現しなかった)。
+    # errors="replace" で不正バイトを U+FFFD に置換し、reader が死なないようにする。
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         bufsize=1,
         env=env,
     )
