@@ -213,22 +213,25 @@ export default function ModelCanvas({
         )}
       </Suspense>
 
-      {/* 3D の床グリッド(XZ 平面)。HDRI 環境では地面投影と食い違うため隠す。 */}
-      {isStudio && (
-        <Grid
-          position={[0, 0, 0]}
-          infiniteGrid
-          cellSize={0.5}
-          cellThickness={0.6}
-          cellColor="#1f2937"
-          sectionSize={2.5}
-          sectionThickness={1.1}
-          sectionColor="#7c5cff"
-          fadeDistance={40}
-          fadeStrength={1.5}
-          followCamera={false}
-        />
-      )}
+      {/* 床グリッド(XZ 平面)。全環境で表示する。drei Grid はライン以外が
+          透明な半透明マテリアルなので、地面投影 HDRI の上に重ねても背景が透ける。
+          side=DoubleSide で下から覗いたときも消えずに見える。セル色は明るめの
+          グレーにして、暗いスタジオ背景でも明るい HDRI 地面でも視認できるようにする。
+          サイズ/フェードはモデル外接半径に比例させ、スケール非依存にする。 */}
+      <Grid
+        position={[0, 0, 0]}
+        infiniteGrid
+        cellSize={modelRadius * 0.5}
+        cellThickness={0.6}
+        cellColor="#9ca3af"
+        sectionSize={modelRadius * 2.5}
+        sectionThickness={1.1}
+        sectionColor="#7c5cff"
+        fadeDistance={modelRadius * 40}
+        fadeStrength={1.5}
+        followCamera={false}
+        side={THREE.DoubleSide}
+      />
 
       <Suspense fallback={<CanvasLoader />}>
         <Model url={url} wireframe={wireframe} controlsRef={controlsRef} onRadius={setModelRadius} />

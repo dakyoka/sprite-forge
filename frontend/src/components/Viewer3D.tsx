@@ -160,9 +160,10 @@ export default function Viewer3D({ job }: Props) {
       )}
 
       {/* 環境切り替え(左端の縦ストリップ)。各環境を実際に映り込ませたクロム球
-          サムネイル(EnvBall)で一目で判別できる。 */}
+          サムネイル(EnvBall)で一目で判別できる。球は大きめ(56px)にして視認性を上げ、
+          縦中央配置で上部の操作チップ・下部の統計バーと重ならないようにする。 */}
       {isCompleted && (
-        <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-20">
+        <div className="absolute left-2.5 top-1/2 -translate-y-1/2 flex flex-col gap-2.5 z-20">
           {ENVIRONMENTS.map((env) => {
             const active = env.id === envId;
             return (
@@ -171,7 +172,7 @@ export default function Viewer3D({ job }: Props) {
                 onClick={() => setEnvId(env.id)}
                 aria-pressed={active}
                 title={env.label}
-                className={`group relative w-8 h-8 rounded-full transition-transform hover:scale-110 ${
+                className={`group relative w-14 h-14 rounded-full transition-transform hover:scale-110 ${
                   active ? "scale-110" : ""
                 }`}
               >
@@ -184,7 +185,7 @@ export default function Viewer3D({ job }: Props) {
                 >
                   <EnvBall envId={env.id} />
                 </span>
-                <span className="pointer-events-none absolute left-10 top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-neutral-900/90 border border-neutral-700 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-neutral-200 opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="pointer-events-none absolute left-16 top-1/2 -translate-y-1/2 whitespace-nowrap rounded bg-neutral-900/90 border border-neutral-700 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-neutral-200 opacity-0 group-hover:opacity-100 transition-opacity">
                   {env.label}
                 </span>
               </button>
