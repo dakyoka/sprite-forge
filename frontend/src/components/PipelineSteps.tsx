@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import type { PipelineStep } from "@/lib/api";
 import { parseTs } from "@/lib/api";
+import WaveLoader from "./WaveLoader";
 
 const COLORS: Record<string, string> = {
   upload:  "text-yellow-400 border-yellow-400",
@@ -44,11 +45,18 @@ export default function PipelineSteps({ steps }: { steps: PipelineStep[] }) {
         return (
           <div key={s.step_id}>
             <div className={`flex items-center gap-3 px-3 py-2.5 rounded border transition-all ${BG[s.status]} ${s.status === "pending" ? "opacity-40" : ""}`}>
-              <div className={`w-5 h-5 rounded-full border flex items-center justify-center text-[9px] font-black flex-shrink-0 ${
-                s.status === "skipped" ? "text-amber-400 border-amber-400" : (COLORS[s.step_id] ?? "text-neutral-400 border-neutral-400")
-              }`}>
-                {s.status === "done" ? "✓" : s.status === "error" ? "✕" : s.status === "skipped" ? "⤳" : i + 1}
-              </div>
+              {s.status === "running" ? (
+                // 実行中ステップは「湧き上がる波」で表現(per-step の % は無いので indeterminate)。
+                <div className="flex-shrink-0">
+                  <WaveLoader progress={null} size={20} showLabel={false} color="#60a5fa" />
+                </div>
+              ) : (
+                <div className={`w-5 h-5 rounded-full border flex items-center justify-center text-[9px] font-black flex-shrink-0 ${
+                  s.status === "skipped" ? "text-amber-400 border-amber-400" : (COLORS[s.step_id] ?? "text-neutral-400 border-neutral-400")
+                }`}>
+                  {s.status === "done" ? "✓" : s.status === "error" ? "✕" : s.status === "skipped" ? "⤳" : i + 1}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <p className="text-[12px] font-semibold">{s.label}</p>
                 {s.detail && <p className="text-[9px] text-neutral-500 mt-0.5 truncate">{s.detail}</p>}

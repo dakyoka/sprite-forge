@@ -5,6 +5,7 @@ import type { Job } from "@/lib/api";
 import { outputUrl, inputUrl } from "@/lib/api";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { ENVIRONMENTS, DEFAULT_ENV, type EnvId } from "./environments";
+import WaveLoader from "./WaveLoader";
 
 interface Props {
   job: Job | null;
@@ -40,8 +41,9 @@ const chipIdle =
 const chipActive = "bg-purple-500 border-purple-500 text-white hover:bg-purple-600";
 
 // ライティングのデフォルト値(初期状態でしっかり見えるように)
-// 環境光は IBL(scene.environmentIntensity)の強さ。1.0 を基準にする。
-const DEFAULT_AMBIENT = 1.0;
+// 環境光は IBL(scene.environmentIntensity)の強さ。既定 2.35(スライダー範囲 0〜3 の
+// 中に収まる)で、初期表示でしっかり明るく見えるようにする。
+const DEFAULT_AMBIENT = 2.35;
 const DEFAULT_KEY = 2.6;
 const DEFAULT_EXPOSURE = 1.0;
 
@@ -220,11 +222,11 @@ export default function Viewer3D({ job }: Props) {
               className="w-full h-full object-contain opacity-80"
               onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
             />
-            {job.status === "running" && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                <div className="w-10 h-10 border-2 border-blue-400/30 border-t-blue-400 rounded-full animate-spin" />
-              </div>
-            )}
+            {/* スピナーの代わりに「下から湧き上がる波」。水位は進捗 % に連動し、
+                キュー待機中(進捗不明)はゆるやかに上下する。 */}
+            <div className="absolute inset-0 flex items-center justify-center bg-black/35">
+              <WaveLoader progress={job.status === "running" ? job.progress : null} size={60} />
+            </div>
           </div>
           <p className="text-[10px] text-blue-400 uppercase tracking-wider">
             {job.status === "queued" ? "キュー待機中…" : "処理中…"}

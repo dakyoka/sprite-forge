@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import type { Job } from "@/lib/api";
 import { inputUrl } from "@/lib/api";
+import WaveLoader from "./WaveLoader";
 
 interface Props {
   running: Job | null;
@@ -68,8 +69,8 @@ export default function QueuePane({ running, queued, selectedId, onSelect, onCan
           <Thumb jobId={running.job_id} />
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-semibold truncate text-blue-300">{running.filename}</p>
-            <p className="text-[9px] text-blue-400/70 mt-0.5 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+            <p className="text-[9px] text-blue-400/70 mt-0.5 flex items-center gap-1.5">
+              <WaveLoader progress={running.progress} size={16} showLabel={false} />
               処理中 {running.progress}%
             </p>
           </div>
